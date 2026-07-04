@@ -11,9 +11,64 @@
 </p>
 
 <p align="center">
-  Built by <a href="https://pentest-forge.com"><strong>PentestForge</strong></a> — AI-powered offensive security platform.<br>
-  Website: <a href="https://aegisgate.net">aegisgate.net</a> &middot; Demo: <a href="https://aegisgate.net/demo/">Live Demo</a>
+  <a href="https://aegisgate.net">Website</a> &middot;
+  <a href="https://aegisgate.net/demo/">Live Demo</a> &middot;
+  <a href="https://aegisgate.net/docs.html">Docs</a>
 </p>
+
+<p align="center">
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
+  <img alt="Platform: Linux" src="https://img.shields.io/badge/platform-Linux%20%7C%20Raspberry%20Pi-red">
+  <img alt="Language: Python" src="https://img.shields.io/badge/language-Python%203-yellow">
+  <img alt="Stack: Flask" src="https://img.shields.io/badge/stack-Flask%20%2B%20nftables%20%2B%20dnsmasq-green">
+  <img alt="Status: Production" src="https://img.shields.io/badge/status-production-brightgreen">
+</p>
+
+<p align="center">
+  Built and maintained by <a href="https://pentest-forge.com"><strong>PentestForge</strong></a> — AI-powered offensive security platform.
+</p>
+
+---
+
+### What it does
+
+AegisGate turns a single Linux box (bare-metal, Raspberry Pi, or VM) into a **complete perimeter security gateway**. Instead of stitching together Pi-hole + pfSense + OpenVPN + Suricata + CrowdSec by hand, AegisGate ships all of it — unified under one dashboard, one policy surface, one install command.
+
+| Capability | Engine | What you get |
+|------------|--------|--------------|
+| 🌐 **DNS Firewall & AdBlock** | dnsmasq + RPZ blocklists | 680k+ domains blocked, per-client groups, service bundles (YouTube, TikTok, social), DoH bypass protection, SafeSearch, query log |
+| 🧱 **Firewall & NAT** | nftables | Stateful filter/NAT/DNAT, IP blocklists, allowlist, CrowdSec drops, hostname-based rules, port forwarding, GeoIP filtering |
+| 🛡️ **Intrusion Prevention** | Suricata (NFQ mode) | Inline IPS — 5 drop rules (SSH brute, C2, dir traversal, SQLi, XSS) + alert rules for floods/scans, period-filtered timeline |
+| 🥊 **Auto-Ban & Threat Intel** | CrowdSec bouncer | Real-time IP banning from CrowdSec decisions, abuse signal ingestion, manual decision management from UI |
+| 🔒 **WireGuard VPN** | WireGuard | Per-peer ACL (Internet / LAN / DMZ / custom), QR provisioning, bandwidth tracking, DNAT mirroring for wg0, anti-spoofing |
+| 🌍 **GeoIP Filtering** | MaxMind GeoLite2 | Country-level IP allow/drop, GeoIP lookup for any IP, automatic mmdb download |
+| ⚡ **QoS / Traffic Shaping** | tc (CAKE / fq_codel / HTB / HFSC) | Gaming / Streaming / Office / IoT / Custom profiles, built-in speed test with SVG gauges |
+| 📡 **DHCP Server** | dnsmasq | Scopes, static leases, hostname tracking, per-client DNS policy tags, duplicate-IP protection |
+| 📊 **Monitoring & Timeline** | Flask + SQLite + Chart.js | Real-time dashboard: drops, blocked IPs, CrowdSec, Suricata stats, SSH attempts, bandwidth, health score, risk scoring |
+| 🕒 **Unified Event Timeline** | SQLite + cron ingest | All security events (firewall/DNS/IPS/CrowdSec) in one searchable, filterable, exportable timeline |
+| 🌐 **Network Management** | ip / ifupdown | Interface roles, VLAN CRUD, static routes, conntrack viewer, Multi-WAN with failover and policy routing |
+
+### Who it's for
+
+- 🏠 **Home labs & homelabbers** — replace Pi-hole + router + VPN box with one Pi
+- 🏢 **Small offices** — enterprise-grade perimeter defense without subscriptions
+- 🔬 **Security researchers** — real Suricata IPS + full event timeline for analysis
+- 🥧 **Raspberry Pi owners** — purpose-built for Pi 4/5, ARM-optimized
+- 🛠️ **Self-hosters** — your network, your rules, no cloud, no telemetry
+
+### Class of application
+
+**Network security appliance / edge gateway** — AegisGate sits at the network edge between WAN and LAN, inspecting and filtering all traffic in and out. It is **not** a DNS-only blocker (like Pi-hole) or a router-only firewall (like OpenWrt). It is a **full perimeter stack** combining:
+
+- DNS filtering + DHCP (Pi-hole-class)
+- Stateful firewall + NAT (pfSense-class)
+- Inline IPS (Suricata-class)
+- Auto-remediation threat intel (CrowdSec-class)
+- WireGuard VPN gateway (VPN appliance-class)
+- QoS / traffic shaping (SQM-class)
+- Real-time monitoring + timeline (SIEM-lite)
+
+…all in one process, one dashboard, one policy surface — deployed with a single `curl | bash`.
 
 ---
 
@@ -32,12 +87,6 @@
 - [Acknowledgements](#acknowledgements)
 
 ---
-
-## Overview
-
-AegisGate transforms a Linux machine (bare-metal, Raspberry Pi, or VM) into a full-featured perimeter security gateway. It combines nftables firewall, dnsmasq DNS/DHCP, Suricata IPS, CrowdSec bouncer, WireGuard VPN, and MaxMind GeoIP into a single Flask-based dashboard with both dark and light themes.
-
-Designed for home labs, small offices, and security researchers who need enterprise-grade network defense without subscription lock-in.
 
 ## Features
 
