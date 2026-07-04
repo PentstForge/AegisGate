@@ -1,0 +1,373 @@
+{% extends "base.html" %}
+{% block title %}DHCP Server — AegisGate{% endblock %}
+{% block page_title %}DHCP Server{% endblock %}
+{% block head %}
+<style>
+.dhcp-panel{display:none}.dhcp-panel.active{display:block}
+.rule-table{width:100%;border-collapse:collapse;font-size:12px}
+.rule-table th{text-align:left;padding:6px 8px;background:var(--bg-tertiary);color:var(--text-secondary);font-size:10px;text-transform:uppercase;border-bottom:2px solid var(--border)}
+.rule-table td{padding:6px 8px;border-bottom:1px solid var(--border)}
+.rule-table tr:hover{background:var(--bg-tertiary)}
+.badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700}
+.badge-active{background:#22c55e;color:#fff}.badge-expired{background:#ef4444;color:#fff}.badge-static{background:#3b82f6;color:#fff}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border:none;border-radius:6px;font-weight:600;cursor:pointer;font-size:12px;transition:all .15s}
+.btn-primary{background:var(--accent);color:#fff}.btn-primary:hover{background:var(--accent-hover)}
+.btn-danger{background:var(--danger);color:#fff}.btn-danger:hover{opacity:.9}
+.btn-secondary{background:var(--bg-tertiary);color:var(--text-primary);border:1px solid var(--border)}.btn-secondary:hover{border-color:var(--accent)}
+.btn-sm{padding:4px 10px;font-size:10px}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.form-group{display:flex;flex-direction:column;gap:4px}
+.form-group label{font-size:11px;font-weight:600;color:var(--text-secondary)}
+.form-group input,.form-group select{padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-tertiary);color:var(--text-primary);font-size:12px}
+.form-group input:focus,.form-group select:focus{outline:none;border-color:var(--accent)}
+.mini-note{font-size:11px;color:var(--text-secondary);line-height:1.4}
+.danger-zone{border:2px solid var(--danger);border-radius:16px;padding:16px;margin:12px 0;background:color-mix(in srgb,var(--danger) 6%,var(--bg-card))}
+.danger-zone h3{color:var(--danger);font-size:14px;margin-bottom:8px}
+@media(max-width:700px){.form-grid{grid-template-columns:1fr}}
+</style>
+{% endblock %}
+{% block content %}
+<section class="page-hero">
+  <div class="page-hero-top">
+    <div>
+      <div class="page-kicker">Network Services</div>
+      <div class="page-title">DHCP Server</div>
+      <div class="page-subtitle">Dynamic Host Configuration Protocol for automatic IP address assignment and network boot support.</div>
+    </div>
+    <div class="page-actions">
+      <button class="mod-action-btn {{ 'success' if status.enabled else 'danger' }}" onclick="toggleDHCP()">{{ '⏹ Disable' if status.enabled else '▶ Enable' }} DHCP</button>
+      <span class="page-state-pill {{ 'running' if status.enabled else 'stopped' }}"><span class="state-dot"></span> {{ 'Enabled' if status.enabled else 'Disabled' }}</span>
+    </div>
+  </div>
+  <div class="kpi-grid">
+    <div class="kpi-card accent"><div class="kpi-label">Active Leases</div><div class="kpi-value">{{ status.active_leases }}</div><div class="kpi-note">Connected</div></div>
+    <div class="kpi-card"><div class="kpi-label">Scopes</div><div class="kpi-value">{{ status.scopes|length }}</div><div class="kpi-note">DHCP pools</div></div>
+    <div class="kpi-card"><div class="kpi-label">Static Leases</div><div class="kpi-value">{{ status.static_leases|length }}</div><div class="kpi-note">Reservations</div></div>
+    <div class="kpi-card {{ 'success' if status.enabled else 'danger' }}"><div class="kpi-label">DHCP</div><div class="kpi-value">{{ 'ON' if status.enabled else 'OFF' }}</div><div class="kpi-note">{{ 'Running' if status.enabled else 'Stopped' }}</div></div>
+  </div>
+</section>
+
+<div class="page-toolbar">
+  <div class="page-tabs">
+    <button class="page-tab active" onclick="showTab('overview',this)">Overview</button>
+    <button class="page-tab" onclick="showTab('scopes',this)">Scopes</button>
+    <button class="page-tab" onclick="showTab('leases',this)">Leases</button>
+    <button class="page-tab" onclick="showTab('static',this)">Static Leases</button>
+    <button class="page-tab" onclick="showTab('options',this)">Options</button>
+    <button class="page-tab" onclick="showTab('safety',this)">Safety</button>
+  </div>
+</div>
+
+<div id="tab-overview" class="dhcp-panel active">
+  <div class="panel-card">
+    <div class="panel-card-title">Active Leases <span>last 20</span></div>
+    {% if active_leases %}
+    <div class="tbl-wrap">
+      <table class="mod-table">
+        <thead><tr><th>IP</th><th>MAC</th><th>Hostname</th><th>State</th><th></th></tr></thead>
+        <tbody>
+        {% for l in active_leases[:20] %}
+        <tr>
+          <td>{{ l.ip|e }}</td>
+          <td style="font-family:monospace;font-size:11px">{{ l.mac|e }}</td>
+          <td>{{ (l.hostname or '')|e }}</td>
+          <td><span class="mod-badge {{ 'green' if l.state == 'active' else 'red' }}">{{ l.state|e }}</span></td>
+          <td>{% if l.state == 'active' %}<form method="POST" action="/dhcp/make-static/{{ l.id }}" style="display:inline"><button type="submit" class="mod-action-btn ghost" style="font-size:10px;padding:3px 8px">Static</button></form>{% endif %}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="mod-empty-state"><div class="icon">&#x1f4cb;</div><h3>No active leases</h3><p>Enable DHCP and configure a scope to start assigning leases.</p></div>
+    {% endif %}
+  </div>
+</div>
+
+<div id="tab-scopes" class="dhcp-panel">
+  <div class="panel-card">
+    <div class="panel-card-title">DHCP Scopes <span>{{ scopes|length }} configured</span></div>
+    <div style="margin-bottom:10px"><button class="mod-action-btn ghost" onclick="document.getElementById('add-scope-form').style.display=document.getElementById('add-scope-form').style.display==='none'?'':'none'">+ Add Scope</button></div>
+    <div id="add-scope-form" style="display:none">
+      <div style="border:1px solid var(--border);border-radius:12px;padding:14px;background:var(--bg-tertiary);margin-bottom:12px">
+        <form method="POST" action="/dhcp/add-scope" class="form-grid">
+          <div class="form-group"><label>Name</label><input type="text" name="name" placeholder="LAN DHCP" required></div>
+          <div class="form-group"><label>Interface</label><input type="text" name="interface" placeholder="eth0" required></div>
+          <div class="form-group"><label>Subnet</label><input type="text" name="subnet" placeholder="192.168.1.0/24" required></div>
+          <div class="form-group"><label>Range Start</label><input type="text" name="range_start" placeholder="192.168.1.100"></div>
+          <div class="form-group"><label>Range End</label><input type="text" name="range_end" placeholder="192.168.1.250"></div>
+          <div class="form-group"><label>Router/Gateway</label><input type="text" name="router" placeholder="192.168.1.1"></div>
+          <div class="form-group"><label>DNS Servers</label><input type="text" name="dns_servers" placeholder="192.168.1.1"></div>
+          <div class="form-group"><label>Domain</label><input type="text" name="domain" value="lan"></div>
+          <div class="form-group"><label>Lease Time (sec)</label><input type="number" name="lease_time" value="86400"></div>
+          <div style="grid-column:1/-1;display:flex;gap:8px;margin-top:4px"><button type="submit" class="mod-action-btn primary">Add Scope</button><button type="button" class="mod-action-btn ghost" onclick="document.getElementById('add-scope-form').style.display='none'">Cancel</button></div>
+        </form>
+      </div>
+    </div>
+    {% if scopes %}
+    <div class="tbl-wrap">
+      <table class="mod-table">
+        <thead><tr><th>Name</th><th>Interface</th><th>Subnet</th><th>Range</th><th>Gateway</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+        {% for s in scopes %}
+        <tr>
+          <td><strong>{{ s.name|e }}</strong></td>
+          <td>{{ s.interface|e }}</td>
+          <td style="font-family:monospace;font-size:11px">{{ s.subnet|e }}</td>
+          <td style="font-family:monospace;font-size:11px">{{ (s.range_start or '')|e }}–{{ (s.range_end or '')|e }}</td>
+          <td style="font-family:monospace;font-size:11px">{{ (s.router or '')|e }}</td>
+          <td><span class="mod-badge {{ 'green' if s.enabled else 'red' }}">{{ 'ON' if s.enabled else 'OFF' }}</span></td>
+          <td style="white-space:nowrap">
+            <form method="POST" action="/dhcp/toggle-scope/{{ s.id }}" style="display:inline"><button type="submit" class="mod-action-btn {{ 'success' if s.enabled else 'danger' }}" style="font-size:10px;padding:3px 8px">{{ 'ON' if s.enabled else 'OFF' }}</button></form>
+            <form method="POST" action="/dhcp/delete-scope/{{ s.id }}" style="display:inline" onsubmit="return confirm('Delete this scope?')"><button type="submit" class="mod-action-btn danger" style="font-size:10px;padding:3px 8px">Delete</button></form>
+          </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="mod-empty-state"><div class="icon">&#x1f310;</div><h3>No DHCP scopes</h3><p>Add a DHCP scope to start assigning IP addresses.</p></div>
+    {% endif %}
+  </div>
+</div>
+
+<div id="tab-leases" class="dhcp-panel">
+  <div class="panel-card">
+    <div class="panel-card-title">Active Leases <span>{{ active_leases|length }} total</span></div>
+    <div style="margin-bottom:10px"><form method="POST" action="/dhcp/refresh-leases" style="display:inline"><button type="submit" class="mod-action-btn ghost">Refresh from Lease File</button></form></div>
+    {% if active_leases %}
+    <div class="tbl-wrap">
+      <table class="mod-table">
+        <thead><tr><th>IP</th><th>MAC</th><th>Hostname</th><th>State</th><th>Source</th><th></th></tr></thead>
+        <tbody>
+        {% for l in active_leases %}
+        <tr>
+          <td style="font-family:monospace">{{ l.ip|e }}</td>
+          <td style="font-family:monospace;font-size:11px">{{ l.mac|e }}</td>
+          <td>{{ (l.hostname or '—')|e }}</td>
+          <td><span class="mod-badge {{ 'green' if l.state == 'active' else 'red' }}">{{ l.state|e }}</span></td>
+          <td class="mini-note">{{ (l.source or '')|e }}</td>
+          <td>{% if l.state == 'active' %}<form method="POST" action="/dhcp/make-static/{{ l.id }}" style="display:inline"><button type="submit" class="mod-action-btn ghost" style="font-size:10px;padding:3px 8px">Static</button></form>{% endif %}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="mod-empty-state"><div class="icon">&#x1f4cb;</div><h3>No leases found</h3><p>Leases will appear here when clients request IP addresses.</p></div>
+    {% endif %}
+  </div>
+</div>
+
+<div id="tab-static" class="dhcp-panel">
+  <div class="panel-card">
+    <div class="panel-card-title">Static Leases <span>{{ static_leases|length }} reservations</span></div>
+    <div style="margin-bottom:10px"><button class="mod-action-btn ghost" onclick="document.getElementById('add-static-form').style.display=document.getElementById('add-static-form').style.display==='none'?'':'none'">+ Add Static Lease</button></div>
+    <div id="add-static-form" style="display:none">
+      <div style="border:1px solid var(--border);border-radius:12px;padding:14px;background:var(--bg-tertiary);margin-bottom:12px">
+        <form method="POST" action="/dhcp/add-static-lease" class="form-grid">
+          <div class="form-group"><label>MAC Address</label><input type="text" name="mac" placeholder="AA:BB:CC:DD:EE:FF" required></div>
+          <div class="form-group"><label>IP Address</label><input type="text" name="ip" placeholder="192.168.1.50" required></div>
+          <div class="form-group"><label>Hostname</label><input type="text" name="hostname" placeholder="my-device"></div>
+          <div class="form-group"><label>Comment</label><input type="text" name="comment" placeholder="Optional"></div>
+          <div style="grid-column:1/-1;display:flex;gap:8px;margin-top:4px"><button type="submit" class="mod-action-btn primary">Add</button><button type="button" class="mod-action-btn ghost" onclick="document.getElementById('add-static-form').style.display='none'">Cancel</button></div>
+        </form>
+      </div>
+    </div>
+    {% if static_leases %}
+    <div class="tbl-wrap">
+      <table class="mod-table">
+        <thead><tr><th>MAC</th><th>IP</th><th>Hostname</th><th>Comment</th><th></th></tr></thead>
+        <tbody>
+        {% for l in static_leases %}
+        <tr>
+          <td style="font-family:monospace;font-size:11px">{{ l.mac|e }}</td>
+          <td style="font-family:monospace">{{ l.ip|e }}</td>
+          <td>{{ (l.hostname or '')|e }}</td>
+          <td class="mini-note">{{ (l.comment or '')|e }}</td>
+          <td><form method="POST" action="/dhcp/delete-static-lease/{{ l.id }}" style="display:inline" onsubmit="return confirm('Delete this static lease?')"><button type="submit" class="mod-action-btn danger" style="font-size:10px;padding:3px 8px">Delete</button></form></td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="mod-empty-state"><div class="icon">&#x1f4cc;</div><h3>No static leases</h3><p>Add static reservations for devices that need consistent IP addresses.</p></div>
+    {% endif %}
+  </div>
+</div>
+
+<div id="tab-options" class="dhcp-panel">
+  <div class="panel-card">
+    <div class="panel-card-title">DHCP Options <span>{{ dhcp_options|length }} configured</span></div>
+    <div style="margin-bottom:10px"><button class="mod-action-btn ghost" onclick="document.getElementById('add-option-form').style.display=document.getElementById('add-option-form').style.display==='none'?'':'none'">+ Add Option</button></div>
+    <div id="add-option-form" style="display:none">
+      <div style="border:1px solid var(--border);border-radius:12px;padding:14px;background:var(--bg-tertiary);margin-bottom:12px">
+        <form method="POST" action="/dhcp/add-option" class="form-grid">
+          <div class="form-group"><label>Scope (empty = global)</label><select name="scope_id"><option value="">Global</option>{% for s in scopes %}<option value="{{ s.id }}">{{ s.name|e }} ({{ s.interface|e }})</option>{% endfor %}</select></div>
+          <div class="form-group"><label>Option Code</label><select name="option_code"><option value="1">1 - Subnet Mask</option><option value="3">3 - Router/Gateway</option><option value="6" selected>6 - DNS Servers</option><option value="12">12 - Hostname</option><option value="15">15 - Domain Name</option><option value="28">28 - Broadcast Address</option><option value="42">42 - NTP Servers</option><option value="66">66 - TFTP Server</option><option value="67">67 - Bootfile</option><option value="119">119 - Domain Search</option><option value="121">121 - Static Routes</option></select></div>
+          <div class="form-group"><label>Value</label><input type="text" name="option_value" placeholder="8.8.8.8, 8.8.4.4" required></div>
+          <div class="form-group"><label>Type</label><select name="option_type"><option value="text">Text</option><option value="ip">IP Address</option><option value="ips">IP Addresses (comma-separated)</option><option value="u8">Uint8</option><option value="u16">Uint16</option><option value="bool">Boolean</option><option value="hex">Hex</option></select></div>
+          <div class="form-group"><label>Comment</label><input type="text" name="comment" placeholder="Optional note"></div>
+          <div style="grid-column:1/-1;display:flex;gap:8px;margin-top:4px"><button type="submit" class="mod-action-btn primary">Add Option</button><button type="button" class="mod-action-btn ghost" onclick="document.getElementById('add-option-form').style.display='none'">Cancel</button></div>
+        </form>
+      </div>
+    </div>
+    {% if dhcp_options %}
+    <div class="tbl-wrap">
+      <table class="mod-table">
+        <thead><tr><th>Scope</th><th>Code</th><th>Name</th><th>Value</th><th>Type</th><th>Enabled</th><th></th></tr></thead>
+        <tbody>
+        {% for opt in dhcp_options %}
+        <tr>
+          <td>{{ 'Global' if not opt.scope_id else opt.scope_id }}</td>
+          <td>{{ opt.option_code }}</td>
+          <td>{{ (opt.option_name or '')|e }}</td>
+          <td style="font-family:monospace">{{ opt.option_value|e }}</td>
+          <td>{{ opt.option_type|e }}</td>
+          <td><span class="mod-badge {{ 'green' if opt.enabled else 'red' }}">{{ 'ON' if opt.enabled else 'OFF' }}</span></td>
+          <td><form method="POST" action="/dhcp/delete-option/{{ opt.id }}" style="display:inline" onsubmit="return confirm('Delete this option?')"><button type="submit" class="mod-action-btn danger" style="font-size:10px;padding:3px 8px">Delete</button></form></td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="mod-empty-state"><p>No DHCP options configured. Default options are set per-scope.</p></div>
+    {% endif %}
+  </div>
+</div>
+
+<div id="tab-safety" class="dhcp-panel">
+  <div class="panel-card">
+    <div class="panel-card-title">DHCP Safety Checks</div>
+    <p class="mini-note" style="margin-bottom:12px">Before enabling DHCP on an interface, verify these checks:</p>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <div style="padding:14px;background:var(--bg-tertiary);border-radius:12px;border:1px solid var(--border)">
+        <strong style="color:var(--accent);font-size:13px">1. No conflicting DHCP server</strong>
+        <p class="mini-note" style="margin:4px 0 8px">Detect existing DHCP servers on the network.</p>
+        <form method="POST" action="/dhcp/detect-active" class="inline-form"><input type="text" name="interface" placeholder="eth0" style="width:120px;padding:6px;border:1px solid var(--border);border-radius:6px;background:var(--bg-primary);color:var(--text-primary);font-size:12px"><button type="submit" class="mod-action-btn ghost">Detect DHCP</button></form>
+      </div>
+      <div style="padding:14px;background:var(--bg-tertiary);border-radius:12px;border:1px solid var(--border)">
+        <strong style="color:var(--accent);font-size:13px">2. Validate Scope Config</strong>
+        <p class="mini-note" style="margin:4px 0 8px">Check that range, gateway, and subnet are valid and non-overlapping.</p>
+        <form method="POST" action="/dhcp/validate-config" class="form-grid" onsubmit="return validateConfig(this)">
+          <div class="form-group"><label>Interface</label><input type="text" name="interface" placeholder="eth0"></div>
+          <div class="form-group"><label>Subnet</label><input type="text" name="subnet" placeholder="192.168.1.0/24"></div>
+          <div class="form-group"><label>Range Start</label><input type="text" name="range_start" placeholder="192.168.1.100"></div>
+          <div class="form-group"><label>Range End</label><input type="text" name="range_end" placeholder="192.168.1.250"></div>
+          <div class="form-group"><label>Router</label><input type="text" name="router" placeholder="192.168.1.1"></div>
+          <div style="grid-column:1/-1"><button type="submit" class="mod-action-btn ghost">Validate Config</button></div>
+        </form>
+      </div>
+      <div style="padding:14px;background:var(--bg-tertiary);border-radius:12px;border:1px solid var(--border)">
+        <strong style="color:var(--accent);font-size:13px">3. Never on WAN</strong>
+        <p class="mini-note" style="margin:4px 0 0">Do not enable DHCP on the WAN interface — this can break your network.</p>
+      </div>
+    </div>
+  </div>
+  <div class="danger-zone">
+    <h3>&#x26A0; Danger Zone</h3>
+    <p style="font-size:12px;color:var(--text-secondary)">Write DHCP config and reload dnsmasq. This will restart the DNS/DHCP server.</p>
+    <form method="POST" action="/dhcp/reload" style="margin-top:8px"><button type="submit" class="mod-action-btn danger">Apply DHCP Config & Reload dnsmasq</button></form>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function showTab(name,btn){
+  document.querySelectorAll('.dhcp-panel').forEach(function(p){p.classList.remove('active')});
+  document.querySelectorAll('.page-tab').forEach(function(b){b.classList.remove('active')});
+  var el=document.getElementById('tab-'+name);
+  if(el)el.classList.add('active');
+  if(btn)btn.classList.add('active');
+  if(history.replaceState)history.replaceState(null,'','#'+name);
+}
+function activateInitialTab(){
+  var tab=(location.hash||'').replace('#','');
+  if(!tab)tab='overview';
+  var btn=Array.from(document.querySelectorAll('.page-tab')).find(function(b){return (b.getAttribute('onclick')||'').indexOf("'"+tab+"'")!==-1;});
+  showTab(tab,btn);
+}
+
+var _toastTimer=null;
+function showToast(msg,type){
+  type=type||'ok';
+  var t=document.getElementById('dhcp-toast');
+  if(!t){t=document.createElement('div');t.id='dhcp-toast';t.style.cssText='position:fixed;top:18px;right:18px;z-index:9999;padding:12px 22px;border-radius:10px;font-size:13px;font-weight:600;color:#fff;box-shadow:0 4px 20px rgba(0,0,0,.25);transition:opacity .3s;pointer-events:none;';document.body.appendChild(t);}
+  t.textContent=msg;
+  t.style.background=type==='error'?'#ef4444':'#22c55e';
+  t.style.opacity='1';
+  clearTimeout(_toastTimer);
+  _toastTimer=setTimeout(function(){t.style.opacity='0';},3000);
+}
+
+function ajaxForm(e,form){
+  e.preventDefault();
+  var fd=new FormData(form);
+  var url=form.getAttribute('action')||'';
+  var cleanUrl=url.replace(/#\w+$/,'');
+  fetch(cleanUrl,{method:'POST',body:fd,headers:{'X-Requested-With':'XMLHttpRequest'}})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.error){showToast(d.error,'error');return;}
+      showToast(d.message||'Saved');
+      var secMap={'add-scope':'scopes','delete-scope':'scopes','toggle-scope':'scopes',
+        'refresh-leases':'leases','make-static':'leases',
+        'add-static-lease':'static','delete-static-lease':'static',
+        'add-option':'options','delete-option':'options',
+        'detect-active':'safety','validate-config':'safety','reload':'safety'};
+      var section='overview';
+      for(var k in secMap){if(cleanUrl.indexOf('/dhcp/'+k)!==-1){section=secMap[k];break;}}
+      reloadTab(section);
+    })
+    .catch(function(ex){showToast('Network error: '+ex.message,'error');});
+  return false;
+}
+
+function ajaxPost(url,section){
+  fetch(url,{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'}})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.error){showToast(d.error,'error');return;}
+      showToast(d.message||'Done');
+      if(section)reloadTab(section);
+    })
+    .catch(function(ex){showToast('Error: '+ex.message,'error');});
+}
+
+function reloadTab(tabName){
+  fetch('/dhcp?_partial=1')
+    .then(function(r){return r.text();})
+    .then(function(html){
+      var parser=new DOMParser();
+      var doc=parser.parseFromString(html,'text/html');
+      var newPanel=doc.getElementById('tab-'+tabName);
+      var curPanel=document.getElementById('tab-'+tabName);
+      if(newPanel&&curPanel){
+        curPanel.innerHTML=newPanel.innerHTML;
+        attachAjaxForms();
+      }
+    })
+    .catch(function(){});
+}
+
+function attachAjaxForms(){
+  document.querySelectorAll('#tab-overview, #tab-scopes, #tab-leases, #tab-static, #tab-options, #tab-safety').forEach(function(panel){
+    panel.querySelectorAll('form[method="POST"],form[action^="/dhcp/"]').forEach(function(form){
+      if(!form.dataset.ajaxBound){
+        form.dataset.ajaxBound='1';
+        form.addEventListener('submit',function(e){ajaxForm(e,form);});
+      }
+    });
+  });
+}
+
+function toggleDHCP(){
+  fetch('/dns/dhcp/toggle',{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'},body:'enabled=1'}).then(r=>r.json()).then(d=>{showToast(d.message||d.error||'Done');setTimeout(()=>location.reload(),1500);}).catch(e=>showToast('Error: '+e,'error'));
+}
+
+document.addEventListener('DOMContentLoaded',function(){activateInitialTab();attachAjaxForms();});
+</script>
+{% endblock %}

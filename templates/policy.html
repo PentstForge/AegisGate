@@ -1,0 +1,230 @@
+{% extends "base.html" %}
+{% block title %}Security Policy{% endblock %}
+{% block page_title %}Security Policy{% endblock %}
+{% block content %}
+<style>
+.policy-page{display:flex;flex-direction:column;gap:14px}
+.policy-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}
+.policy-card{background:var(--bg-card);border:2px solid var(--border);border-radius:13px;padding:16px 12px;text-align:center;cursor:pointer;transition:all .25s ease;user-select:none;position:relative;overflow:hidden}
+.policy-card::before{content:'';position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--text-muted);transition:.2s}
+.policy-card:hover{border-color:var(--accent);transform:translateY(-2px);box-shadow:0 8px 22px rgba(0,0,0,.14)}
+.policy-card.active{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,var(--bg-card));box-shadow:0 0 18px color-mix(in srgb,var(--accent) 18%,transparent)}
+.policy-card.active::before,.policy-card.selected::before{background:var(--accent)}
+.policy-card.selected{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,var(--bg-card));box-shadow:0 0 12px color-mix(in srgb,var(--accent) 14%,transparent)}
+.policy-card .icon{font-size:28px;margin-bottom:6px}
+.policy-card .name{font-size:14px;font-weight:850;margin-bottom:3px}
+.policy-card .desc{font-size:11px;color:var(--text-secondary);line-height:1.3}
+.settings-diff{font-size:11px;margin-left:6px;padding:1px 6px;border-radius:4px}
+.settings-diff.new{background:color-mix(in srgb,var(--accent) 18%,transparent);color:var(--accent)}
+.settings-diff.old{background:color-mix(in srgb,var(--danger) 15%,transparent);color:var(--danger);text-decoration:line-through}
+#apply-btn{opacity:.4;pointer-events:none;transition:all .25s ease}
+#apply-btn.enabled{opacity:1;pointer-events:auto}
+.page-state-pill.monitor{color:var(--success);border-color:color-mix(in srgb,var(--success) 35%,var(--border))}
+.page-state-pill.balanced{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 35%,var(--border))}
+.page-state-pill.strict{color:var(--warning);border-color:color-mix(in srgb,var(--warning) 35%,var(--border))}
+.page-state-pill.lockdown{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 35%,var(--border))}
+.mod-table tr.changed td{background:color-mix(in srgb,var(--accent) 8%,transparent)}
+</style>
+
+<div class="policy-page">
+
+<section class="page-hero">
+  <div class="page-hero-top">
+    <div>
+      <div class="page-kicker">Security posture control</div>
+      <div class="page-title">Security Policy</div>
+      <div class="page-subtitle">Select and apply a preconfigured security profile. Preview changes before committing to protect against brute-force, scans, and flood attacks.</div>
+    </div>
+    <div class="page-state-pill {{ current_mode }}" id="policy-state-pill">
+      <span class="state-dot"></span><span id="current-label-hero">{{ current_mode|capitalize }}</span>
+    </div>
+  </div>
+  <div class="kpi-grid">
+    <div class="kpi-card {% if current_mode=='strict' or current_mode=='lockdown' %}danger{% elif current_mode=='balanced' %}warn{% else %}success{% endif %}">
+      <div class="kpi-label">Current Mode</div>
+      <div class="kpi-value" id="kpi-mode">{{ current_mode|capitalize }}</div>
+      <div class="kpi-note">Active profile</div>
+    </div>
+    <div class="kpi-card {% if current_mode=='lockdown' %}danger{% elif current_mode=='strict' %}warn{% elif current_mode=='balanced' %}accent{% else %}success{% endif %}">
+      <div class="kpi-label">Threat Level</div>
+      <div class="kpi-value" id="kpi-threat">{% if current_mode=='monitor' %}Low{% elif current_mode=='balanced' %}Medium{% elif current_mode=='strict' %}High{% else %}Critical{% endif %}</div>
+      <div class="kpi-note">Based on policy</div>
+    </div>
+    <div class="kpi-card {% if policy.ssh_ban_threshold==0 %}warn{% else %}success{% endif %}">
+      <div class="kpi-label">Auto-Ban SSH</div>
+      <div class="kpi-value" id="kpi-ssh">{% if policy.ssh_ban_threshold==0 %}Off{% else %}{{ policy.ssh_ban_threshold }}{% endif %}</div>
+      <div class="kpi-note">{% if policy.ssh_ban_threshold==0 %}No SSH ban{% else %}Failed attempts{% endif %}</div>
+    </div>
+    <div class="kpi-card {% if policy.port_scan_threshold==0 %}warn{% else %}accent{% endif %}">
+      <div class="kpi-label">Port Scan</div>
+      <div class="kpi-value" id="kpi-pscan">{% if policy.port_scan_threshold==0 %}Off{% else %}{{ policy.port_scan_threshold }}{% endif %}</div>
+      <div class="kpi-note">{% if policy.port_scan_threshold==0 %}No scan ban{% else %}Unique ports{% endif %}</div>
+    </div>
+    <div class="kpi-card accent">
+      <div class="kpi-label">Blacklist TTL</div>
+      <div class="kpi-value" id="kpi-ttl">{% if policy.blacklist_ttl=="0" %}None{% else %}{{ policy.blacklist_ttl }}{% endif %}</div>
+      <div class="kpi-note">Ban duration</div>
+    </div>
+    <div class="kpi-card {% if policy.crowdsec_mode=='active' %}success{% elif policy.crowdsec_mode=='passive' %}warn{% else %}{% endif %}">
+      <div class="kpi-label">CrowdSec</div>
+      <div class="kpi-value" id="kpi-cs">{{ policy.crowdsec_mode }}</div>
+      <div class="kpi-note">Mode</div>
+    </div>
+  </div>
+</section>
+
+{% if message %}
+<div class="flash-banner {% if message_error %}error{% endif %}">{{ message }}</div>
+{% endif %}
+
+<section class="page-toolbar">
+  <div class="page-actions">
+    <form method="post" action="/policy/set" id="policy-form" style="margin:0;display:inline-flex">
+      <input type="hidden" name="mode" id="mode-input" value="{{ current_mode }}">
+      <button type="submit" id="apply-btn" class="mod-action-btn primary">&#x2713; Apply Policy</button>
+    </form>
+  </div>
+  <div style="font-size:11px;color:var(--text-muted)">Changed: {{ policy.changed_at }} by {{ policy.changed_by }}</div>
+</section>
+
+<div class="panel-card">
+  <div class="panel-card-title">Select Profile <span>click to preview</span></div>
+  <div class="policy-cards">
+    {% for mode, p in policies.items() %}
+    <div class="policy-card {% if current_mode == mode %}active{% endif %}" data-mode="{{ mode }}" onclick="selectPolicy('{{ mode }}')">
+      <div class="icon">
+        {% if mode == "monitor" %}&#x1f50d;{% elif mode == "balanced" %}&#x2696;{% elif mode == "strict" %}&#x1f6e1;{% else %}&#x1f512;{% endif %}
+      </div>
+      <div class="name">{{ mode|capitalize }}</div>
+      <div class="desc">{{ p.description }}</div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="panel-card">
+  <div class="panel-card-title">Policy Settings <span>preview before apply</span></div>
+  <table class="mod-table" id="settings-table">
+    <thead><tr><th>Setting</th><th>Value</th></tr></thead>
+    <tbody>
+    <tr data-key="ssh_rate_limit"><td>SSH rate limit</td><td id="val-ssh_rate_limit">{{ policy.ssh_rate_limit }} (burst {{ policy.ssh_rate_burst }})</td></tr>
+    <tr data-key="ssh_ban_threshold"><td>Auto-ban SSH threshold</td><td id="val-ssh_ban_threshold">{% if policy.ssh_ban_threshold == 0 %}Disabled{% else %}{{ policy.ssh_ban_threshold }} failed attempts{% endif %}</td></tr>
+    <tr data-key="port_scan_threshold"><td>Auto-ban port scan</td><td id="val-port_scan_threshold">{% if policy.port_scan_threshold == 0 %}Disabled{% else %}{{ policy.port_scan_threshold }} unique ports{% endif %}</td></tr>
+    <tr data-key="syn_flood_threshold"><td>Auto-ban SYN flood</td><td id="val-syn_flood_threshold">{% if policy.syn_flood_threshold == 0 %}Disabled{% else %}{{ policy.syn_flood_threshold }} SYN packets{% endif %}</td></tr>
+    <tr data-key="blacklist_ttl"><td>Blacklist TTL</td><td id="val-blacklist_ttl">{% if policy.blacklist_ttl == "0" %}No auto-ban{% else %}{{ policy.blacklist_ttl }}{% endif %}</td></tr>
+    <tr data-key="newconn_rate"><td>New connection limit</td><td id="val-newconn_rate">{{ policy.newconn_rate }} (burst {{ policy.newconn_burst }})</td></tr>
+    <tr data-key="crowdsec_mode"><td>CrowdSec mode</td><td id="val-crowdsec_mode">{{ policy.crowdsec_mode }}</td></tr>
+    <tr data-key="suricata_local_rules"><td>Suricata local rules</td><td id="val-suricata_local_rules">{{ policy.suricata_local_rules }}</td></tr>
+    <tr data-key="bogon_mode"><td>Bogon mode</td><td id="val-bogon_mode">{{ policy.bogon_mode }}</td></tr>
+    <tr data-key="emergency_bypass"><td>Emergency bypass</td><td id="val-emergency_bypass">{% if policy.emergency_bypass %}<span class="mod-badge red">Enabled</span>{% else %}<span class="mod-badge gray">Disabled</span>{% endif %}</td></tr>
+    </tbody>
+  </table>
+</div>
+
+</div>
+
+<script>
+const policies = {{ policies | tojson }};
+const currentMode = "{{ current_mode }}";
+let selectedMode = currentMode;
+
+function formatVal(key, val) {
+    if (key === "ssh_ban_threshold" || key === "port_scan_threshold" || key === "syn_flood_threshold") {
+        return val === 0 ? "Disabled" : (val + (key === "ssh_ban_threshold" ? " failed attempts" : key === "port_scan_threshold" ? " unique ports" : " SYN packets"));
+    }
+    if (key === "blacklist_ttl") return val === "0" ? "No auto-ban" : val;
+    if (key === "emergency_bypass") return val ? "Enabled" : "Disabled";
+    if (key === "ssh_rate_limit" || key === "newconn_rate") {
+        const burstKey = key === "ssh_rate_limit" ? "ssh_rate_burst" : "newconn_burst";
+        const burst = policies[selectedMode] ? policies[selectedMode][burstKey] : "";
+        return val + " (burst " + burst + ")";
+    }
+    return val;
+}
+
+function selectPolicy(mode) {
+    selectedMode = mode;
+    document.getElementById("mode-input").value = mode;
+
+    document.querySelectorAll(".policy-card").forEach(c => {
+        c.classList.remove("active", "selected");
+        if (c.dataset.mode === mode) {
+            c.classList.add(mode === currentMode ? "active" : "selected");
+        }
+    });
+
+    const btn = document.getElementById("apply-btn");
+    if (mode !== currentMode) {
+        btn.classList.add("enabled");
+    } else {
+        btn.classList.remove("enabled");
+    }
+
+    const pill = document.getElementById("policy-state-pill");
+    pill.className = "page-state-pill " + mode;
+    document.getElementById("current-label-hero").textContent = mode.charAt(0).toUpperCase() + mode.slice(1);
+
+    const threatLabels = {monitor:"Low",balanced:"Medium",strict:"High",lockdown:"Critical"};
+    const threatColors = {monitor:"success",balanced:"accent",strict:"warn",lockdown:"danger"};
+    const kpiMode = document.getElementById("kpi-mode");
+    const kpiModeCard = kpiMode.closest(".kpi-card");
+    kpiMode.textContent = mode.charAt(0).toUpperCase() + mode.slice(1);
+    kpiModeCard.className = "kpi-card " + (threatColors[mode] || "");
+
+    const policy = policies[mode];
+    const currentPolicy = policies[currentMode];
+    const rows = document.querySelectorAll("#settings-table tr[data-key]");
+    rows.forEach(tr => {
+        const key = tr.dataset.key;
+        const td = document.getElementById("val-" + key);
+        const newVal = policy[key];
+        const curVal = currentPolicy[key];
+        const formatted = formatVal(key, newVal);
+
+        if (String(newVal) !== String(curVal)) {
+            const oldFormatted = formatVal(key, curVal);
+            tr.classList.add("changed");
+            if (key === "emergency_bypass") {
+                const newColor = newVal ? 'var(--success)' : 'var(--danger)';
+                const oldColor = curVal ? 'var(--success)' : 'var(--danger)';
+                td.innerHTML = '<span style="color:' + oldColor + ';text-decoration:line-through;">' + oldFormatted + '</span> <span style="color:' + newColor + ';">' + formatted + '</span>';
+            } else {
+                td.innerHTML = formatted + ' <span class="settings-diff old">' + oldFormatted + '</span>';
+            }
+        } else {
+            tr.classList.remove("changed");
+            td.innerHTML = formatted;
+        }
+    });
+
+    document.getElementById("current-label-hero").textContent = mode.charAt(0).toUpperCase() + mode.slice(1);
+}
+
+document.querySelectorAll(".policy-card").forEach(c => {
+    if (c.dataset.mode !== currentMode) {
+        c.addEventListener("mouseenter", () => {
+            if (c.dataset.mode !== selectedMode) {
+                const mode = c.dataset.mode;
+                const policy = policies[mode];
+                const currentPolicy = policies[currentMode];
+                const rows = document.querySelectorAll("#settings-table tr[data-key]");
+                rows.forEach(tr => {
+                    const key = tr.dataset.key;
+                    const newVal = policy[key];
+                    const curVal = currentPolicy[key];
+                    if (String(newVal) !== String(curVal)) {
+                        tr.classList.add("changed");
+                    } else {
+                        tr.classList.remove("changed");
+                    }
+                });
+            }
+        });
+        c.addEventListener("mouseleave", () => {
+            selectPolicy(selectedMode);
+        });
+    }
+});
+document.addEventListener("DOMContentLoaded", function() { selectPolicy(currentMode); });
+</script>
+{% endblock %}

@@ -1,0 +1,374 @@
+{% extends "base.html" %}
+{% block title %}Security Dashboard{% endblock %}
+{% block page_title %}Security Dashboard{% endblock %}
+{% block content %}
+<style>
+.dash-page{display:flex;flex-direction:column;gap:14px}
+.svc-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-top:16px;position:relative;z-index:1}
+.svc-card{background:color-mix(in srgb,var(--bg-card) 86%,var(--bg-primary));border:1px solid var(--border);border-radius:13px;padding:10px;min-width:0;text-align:center}
+.svc-card .svc-name{color:var(--text-secondary);font-size:10px;text-transform:uppercase;letter-spacing:.08em;font-weight:850;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.svc-card .svc-status{font-size:15px;font-weight:900;margin-top:4px}
+.svc-card .svc-status.ok{color:var(--success)}
+.svc-card .svc-status.fail{color:var(--danger)}
+.svc-card .svc-status.warn{color:var(--warning)}
+.svc-card .svc-uptime{color:var(--text-muted);font-size:10px;margin-top:3px}
+.filter-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.filter-row input,.filter-row select{padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-primary);color:var(--text-primary);font-size:12px;font-weight:700}
+.filter-row input:focus,.filter-row select:focus{border-color:var(--accent);outline:none}
+.filter-row .btn{padding:7px 14px;font-size:12px;font-weight:800}
+.tab-content{display:none}
+.tab-content.active{display:block}
+.share-bar{display:inline-block;height:10px;border-radius:999px;min-width:5px;vertical-align:middle}
+.share-bar.fill{background:var(--accent)}
+.share-bar.zero{background:var(--bg-tertiary)}
+.tag-ban{display:inline-block;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:800;background:color-mix(in srgb,var(--danger) 12%,transparent);color:var(--danger);border:1px solid color-mix(in srgb,var(--danger) 32%,transparent);text-transform:uppercase;letter-spacing:.04em}
+.tag-alert{display:inline-block;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:800;background:color-mix(in srgb,var(--warning) 13%,transparent);color:var(--warning);border:1px solid color-mix(in srgb,var(--warning) 32%,transparent);text-transform:uppercase;letter-spacing:.04em}
+.suricata-meta{color:var(--text-secondary);font-size:12px;margin-top:12px}
+.suricata-meta b{color:var(--text-primary)}
+@media(max-width:760px){.svc-row{grid-template-columns:repeat(2,minmax(0,1fr))}.filter-row{flex-direction:column;align-items:stretch}.filter-row input,.filter-row select,.filter-row .btn{width:100%}}
+</style>
+
+<div class="dash-page">
+  <section class="page-hero">
+    <div class="page-hero-top">
+      <div>
+        <div class="page-kicker">Security overview</div>
+        <div class="page-title">Security Dashboard</div>
+        <div class="page-subtitle">Real-time firewall metrics, threat intelligence, SSH brute-force monitoring, IDS signals and blacklist management across all security layers.</div>
+      </div>
+      <div class="page-state-pill active">
+        <span class="state-dot"></span>
+        <span>Live</span>
+      </div>
+    </div>
+
+    <div class="kpi-grid">
+      <div class="kpi-card accent"><div class="kpi-label">nft Drops</div><div class="kpi-value" id="statDrops">{{ total_drops }}</div><div class="kpi-note">Total blocked</div></div>
+      <div class="kpi-card"><div class="kpi-label">Unique Src</div><div class="kpi-value" id="statUniqueSrc">{{ unique_src }}</div><div class="kpi-note">Source IPs</div></div>
+      <div class="kpi-card danger"><div class="kpi-label">Blacklist</div><div class="kpi-value" id="statBlacklist">{{ bl_count }}</div><div class="kpi-note">Auto-banned</div></div>
+      <div class="kpi-card warn"><div class="kpi-label">CrowdSec</div><div class="kpi-value" id="statCrowdSec">{{ cs_count }}</div><div class="kpi-note">CS entries</div></div>
+      <div class="kpi-card"><div class="kpi-label">SSH Failed</div><div class="kpi-value" id="statSSH">{{ ssh_attempts }}</div><div class="kpi-note">Auth attempts</div></div>
+      <div class="kpi-card success"><div class="kpi-label">CS Alerts</div><div class="kpi-value" id="statCSAlerts">{{ cs_alerts_total }}</div><div class="kpi-note">Alert decisions</div></div>
+      <div class="kpi-card"><div class="kpi-label">Suricata Rules</div><div class="kpi-value" id="statSuricata">{{ suricata_rules }}</div><div class="kpi-note">IDS ruleset</div></div>
+      <div class="kpi-card accent"><div class="kpi-label">Drop Rules</div><div class="kpi-value" id="statDropRules">{{ nft_drop_rules }}</div><div class="kpi-note">nft rules</div></div>
+    </div>
+
+    {% if services %}
+    <div class="svc-row">
+      {% for s in services %}
+      <div class="svc-card">
+        <div class="svc-name">{{ s.name }}</div>
+        <div class="svc-status {% if s.status=='active' %}ok{% elif s.status=='failed' %}fail{% else %}warn{% endif %}">{{ s.status }}</div>
+        {% if s.uptime %}<div class="svc-uptime">{{ s.uptime }}</div>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </section>
+
+  {% if request.args.get('message') %}
+  <div class="flash-banner {% if request.args.get('error') %}error{% endif %}">{{ request.args.get('message') }}</div>
+  {% endif %}
+
+  <section class="page-toolbar">
+    <div class="page-tabs">
+      <button class="page-tab {% if tab=='drops' %}active{% endif %}" onclick="switchTab('drops')">Drops</button>
+      <button class="page-tab {% if tab=='ssh' %}active{% endif %}" onclick="switchTab('ssh')">SSH Brute</button>
+      <button class="page-tab {% if tab=='blacklist' %}active{% endif %}" onclick="switchTab('blacklist')">Blacklists</button>
+      <button class="page-tab {% if tab=='crowdsec' %}active{% endif %}" onclick="switchTab('crowdsec')">CrowdSec</button>
+      <button class="page-tab {% if tab=='suricata' %}active{% endif %}" onclick="switchTab('suricata')">Suricata</button>
+    </div>
+    <div class="page-actions">
+      <form method="get" class="filter-row" id="filterForm">
+        <input type="text" name="q" placeholder="Filter IP, rule..." value="{{ query }}">
+        <select name="period">
+          <option value="5m" {% if period=='5m' %}selected{% endif %}>5m</option>
+          <option value="1h" {% if period=='1h' %}selected{% endif %}>1h</option>
+          <option value="6h" {% if period=='6h' %}selected{% endif %}>6h</option>
+          <option value="24h" {% if period=='24h' %}selected{% endif %}>24h</option>
+          <option value="7d" {% if period=='7d' %}selected{% endif %}>7d</option>
+          <option value="all" {% if period=='all' %}selected{% endif %}>All time</option>
+        </select>
+        <input type="hidden" name="tab" id="tabInput" value="{{ tab }}">
+        <button type="submit" class="btn">Go</button>
+      </form>
+    </div>
+  </section>
+
+  <div id="tab-drops" class="tab-content {% if tab=='drops' %}active{% endif %}">
+    <div class="panel-card">
+      <div class="panel-card-title">Top-20 Sources <span>by hits</span></div>
+      <div class="tbl-wrap">
+        <table class="mod-table">
+          <thead><tr><th>#</th><th>IP</th><th>Hits</th><th>Share</th></tr></thead>
+          <tbody>
+          {% for ip, count in top_ips %}
+          <tr>
+            <td>{{ loop.index }}</td>
+            <td style="font-family:'JetBrains Mono','SFMono-Regular',Consolas,monospace;font-size:11px">{{ ip }}</td>
+            <td style="font-weight:850;font-variant-numeric:tabular-nums">{{ count }}</td>
+            <td>
+              <div style="display:flex;align-items:center;gap:6px">
+                <span class="share-bar fill" style="width:{% if top_ips[0][1] > 0 %}{{ (count / top_ips[0][1] * 100)|int }}%{% else %}0%{% endif %}"></span>
+                <span style="font-variant-numeric:tabular-nums;font-size:11px">{{ "%.1f"|format(count / total_drops * 100) if total_drops > 0 else "0" }}%</span>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px">
+      <div class="panel-card">
+        <div class="panel-card-title">By Rule <span>distribution</span></div>
+        <div class="tbl-wrap">
+          <table class="mod-table">
+            <thead><tr><th>Rule</th><th>Hits</th><th>Share</th></tr></thead>
+            <tbody>
+            {% for rule, count in top_rules %}
+            <tr>
+              <td>{{ rule }}</td>
+              <td style="font-weight:850;font-variant-numeric:tabular-nums">{{ count }}</td>
+              <td>
+                <div style="display:flex;align-items:center;gap:6px">
+                  <span class="share-bar {% if count == 0 %}zero{% else %}fill{% endif %}" style="width:{% if top_rules[0][1] > 0 %}{{ (count / top_rules[0][1] * 100)|int }}%{% else %}0%{% endif %}"></span>
+                  <span style="font-variant-numeric:tabular-nums;font-size:11px">{{ "%.1f"|format(count / total_drops * 100) if total_drops > 0 else "0" }}%</span>
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel-card">
+        <div class="panel-card-title">By Dst Port <span>services</span></div>
+        <div class="tbl-wrap">
+          <table class="mod-table">
+            <thead><tr><th>Port</th><th>Service</th><th>Hits</th><th>Share</th></tr></thead>
+            <tbody>
+            {% for dpt, count in top_dpts %}
+            <tr>
+              <td style="font-weight:850">{{ dpt }}</td>
+              <td style="color:var(--text-secondary)">{{ port_names.get(dpt,'') }}</td>
+              <td style="font-weight:850;font-variant-numeric:tabular-nums">{{ count }}</td>
+              <td>
+                <div style="display:flex;align-items:center;gap:6px">
+                  <span class="share-bar fill" style="width:{% if top_dpts[0][1] > 0 %}{{ (count / top_dpts[0][1] * 100)|int }}%{% else %}0%{% endif %}"></span>
+                  <span style="font-variant-numeric:tabular-nums;font-size:11px">{{ "%.1f"|format(count / total_drops * 100) if total_drops > 0 else "0" }}%</span>
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel-card" style="margin-top:14px">
+      <div class="panel-card-title">Last 50 Drops <span>recent</span></div>
+      <div class="tbl-wrap">
+        <table class="mod-table">
+          <thead><tr><th>Time</th><th>Rule</th><th>IF</th><th>Src</th><th>Dst</th><th>Proto</th><th>DPT</th></tr></thead>
+          <tbody>
+          {% for e in last_entries %}
+          <tr>
+            <td style="font-family:'JetBrains Mono','SFMono-Regular',Consolas,monospace;font-size:11px;white-space:nowrap">{{ e.time }}</td>
+            <td>{{ e.rule }}</td>
+            <td>{{ e.iface }}</td>
+            <td style="font-family:'JetBrains Mono','SFMono-Regular',Consolas,monospace;font-size:11px">{{ e.src }}</td>
+            <td style="font-family:'JetBrains Mono','SFMono-Regular',Consolas,monospace;font-size:11px">{{ e.dst }}</td>
+            <td>{{ e.proto }}</td>
+            <td style="font-weight:850">{{ e.dpt }}</td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div id="tab-ssh" class="tab-content {% if tab=='ssh' %}active{% endif %}">
+    <div class="panel-card">
+      <div class="panel-card-title">SSH Brute-Force Attackers <span>auth.log</span></div>
+      <div class="tbl-wrap">
+        <table class="mod-table">
+          <thead><tr><th>#</th><th>IP</th><th>Failed Attempts</th><th>In Blacklist</th><th>In CrowdSec</th></tr></thead>
+          <tbody>
+          {% for ip, count in ssh_top %}
+          <tr>
+            <td>{{ loop.index }}</td>
+            <td style="font-family:'JetBrains Mono','SFMono-Regular',Consolas,monospace;font-size:11px">{{ ip }}</td>
+            <td style="font-weight:850;font-variant-numeric:tabular-nums">{{ count }}</td>
+            <td>{% if ip in bl_ips %}<span class="tag-ban">Banned</span>{% else %}<span style="color:var(--text-muted)">&mdash;</span>{% endif %}</td>
+            <td>{% if ip in cs_ips %}<span class="tag-alert">CS</span>{% elif ip in bl_ips %}<span class="mod-badge blue" style="font-size:10px">auto</span>{% else %}<span style="color:var(--text-muted)">&mdash;</span>{% endif %}</td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div id="tab-blacklist" class="tab-content {% if tab=='blacklist' %}active{% endif %}">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <div class="panel-card">
+        <div class="panel-card-title">nft Blacklist <span>auto-ban</span></div>
+        <div class="tbl-wrap">
+          <table class="mod-table">
+            <thead><tr><th>IP</th><th>Timeout</th></tr></thead>
+            <tbody>
+            {% for e in bl_list %}
+            <tr>
+              <td style="font-family:'JetBrains Mono','SFMono-Regular',Consolas,monospace;font-size:11px">{{ e.ip }}</td>
+              <td>{{ e.timeout }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel-card">
+        <div class="panel-card-title">CrowdSec Blacklist <span>{{ cs_nft_total }} IPs in nft set (showing {{ cs_nft_list|length }})</span></div>
+        <div class="tbl-wrap">
+          <table class="mod-table">
+            <thead><tr><th>IP</th><th>Timeout</th><th>Expires</th></tr></thead>
+            <tbody>
+            {% for e in cs_nft_list %}
+            <tr>
+              <td style="font-family:'JetBrains Mono','SFMono-Regular',Consolas,monospace;font-size:11px">{{ e.ip }}</td>
+              <td>{{ e.timeout }}</td>
+              <td>{{ e.expires }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="tab-crowdsec" class="tab-content {% if tab=='crowdsec' %}active{% endif %}">
+    <div class="panel-card">
+      <div class="panel-card-title">CrowdSec Decisions <span>active bans</span></div>
+      <div class="tbl-wrap">
+        <table class="mod-table">
+          <thead><tr><th>IP</th><th>Scenario</th><th>Action</th><th>Duration</th><th>Events</th></tr></thead>
+          <tbody>
+          {% for d in cs_decisions %}
+          <tr>
+            <td style="font-family:'JetBrains Mono','SFMono-Regular',Consolas,monospace;font-size:11px">{{ d.value }}</td>
+            <td>{{ d.scenario }}</td>
+            <td>{% if d.type=='ban' %}<span class="tag-ban">{{ d.type }}</span>{% else %}<span class="tag-alert">{{ d.type }}</span>{% endif %}</td>
+            <td>{{ d.duration }}</td>
+            <td style="font-weight:850;font-variant-numeric:tabular-nums">{{ d.events }}</td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div id="tab-suricata" class="tab-content {% if tab=='suricata' %}active{% endif %}">
+    <div class="panel-card">
+      <div class="panel-card-title">Suricata Alerts <span>last {{ suricata_alerts|length }}</span></div>
+      <div class="tbl-wrap">
+        <table class="mod-table">
+          <thead><tr><th>Time</th><th>Action</th><th>Src</th><th>Dst</th><th>Proto</th><th>Port</th><th>Signature</th></tr></thead>
+          <tbody>
+          {% for a in suricata_alerts %}
+          <tr>
+            <td style="font-family:'JetBrains Mono','SFMono-Regular',Consolas,monospace;font-size:11px;white-space:nowrap">{{ a.time }}</td>
+            <td>{% if a.action=='DROP' %}<span class="tag-ban">{{ a.action }}</span>{% else %}<span class="tag-alert">{{ a.action }}</span>{% endif %}</td>
+            <td style="font-family:'JetBrains Mono','SFMono-Regular',Consolas,monospace;font-size:11px">{{ a.src }}</td>
+            <td style="font-family:'JetBrains Mono','SFMono-Regular',Consolas,monospace;font-size:11px">{{ a.dst }}</td>
+            <td>{{ a.proto }}</td>
+            <td style="font-weight:850">{{ a.dpt }}</td>
+            <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ a.msg }}</td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+     <p class="suricata-meta">Suricata rules loaded: <b>{{ suricata_rules }}</b> | IPS mode: <b>{{ suricata_ips }}</b> | Alerts 24h: <b>{{ suricata_stats.historical_alerts_24h }}</b> | Alerts 7d: <b>{{ suricata_stats.historical_alerts_7d }}</b> | Latest shown: <b>{{ suricata_alerts|length }}</b> | Live NFQ: <b>{% if suricata_stats.nfq_active %}active{% else %}inactive{% endif %}</b> | accepted: <b>{{ suricata_stats.accepted }}</b> | blocked: <b style="color:var(--danger)">{{ suricata_stats.blocked }}</b></p>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function switchTab(name) {
+  document.querySelectorAll('.tab-content').forEach(function(p) { p.classList.remove('active'); });
+  document.querySelectorAll('.page-tab').forEach(function(b) { b.classList.remove('active'); });
+  var panel = document.getElementById('tab-' + name);
+  if (panel) panel.classList.add('active');
+  var tabs = document.querySelectorAll('.page-tab');
+  var tabMap = {drops:0,ssh:1,blacklist:2,crowdsec:3,suricata:4};
+  if (tabMap[name] !== undefined && tabs[tabMap[name]]) tabs[tabMap[name]].classList.add('active');
+   document.getElementById('tabInput').value = name;
+  var url = new URL(window.location);
+  url.searchParams.set('tab', name);
+  history.replaceState(null, '', url);
+}
+
+function loadSuricataAlerts(period) {
+  var tab = document.getElementById('tab-suricata');
+  if (!tab) return;
+  var n = 30;
+  fetch('/api/suricata/alerts?period=' + encodeURIComponent(period) + '&n=' + n).then(r => r.json()).then(alerts => {
+    var tbody = tab.querySelector('tbody');
+    if (!tbody) return;
+    var html = '';
+    for (var i = 0; i < alerts.length; i++) {
+      var a = alerts[i];
+      var actionTag = a.action === 'DROP'
+        ? '<span class="tag-ban">DROP</span>'
+        : '<span class="tag-alert">ALERT</span>';
+      html += '<tr>';
+      html += '<td style="font-family:\'JetBrains Mono\',\'SFMono-Regular\',Consolas,monospace;font-size:11px;white-space:nowrap">' + (a.time || '') + '</td>';
+      html += '<td>' + actionTag + '</td>';
+      html += '<td style="font-family:\'JetBrains Mono\',\'SFMono-Regular\',Consolas,monospace;font-size:11px">' + (a.src || '') + '</td>';
+      html += '<td style="font-family:\'JetBrains Mono\',\'SFMono-Regular\',Consolas,monospace;font-size:11px">' + (a.dst || '') + '</td>';
+      html += '<td>' + (a.proto || '') + '</td>';
+      html += '<td style="font-weight:850">' + (a.dpt || '') + '</td>';
+      html += '<td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (a.msg || '') + '</td>';
+      html += '</tr>';
+    }
+    if (!html) html = '<tr><td colspan="7" style="color:var(--text-muted);text-align:center;padding:18px">No Suricata alerts in selected period</td></tr>';
+    tbody.innerHTML = html;
+    var span = tab.querySelector('.panel-card-title span');
+    if (span) span.textContent = 'last ' + alerts.length;
+  }).catch(() => {});
+}
+
+var currentPeriod = document.querySelector('select[name="period"]');
+if (currentPeriod) {
+  currentPeriod.addEventListener('change', function() {
+    loadSuricataAlerts(this.value);
+  });
+  loadSuricataAlerts(currentPeriod.value);
+}
+
+setInterval(function(){
+  var periodSel=document.querySelector('select[name="period"]');
+  var period=periodSel?periodSel.value:'1h';
+  fetch('/api/dashboard-stats?period='+encodeURIComponent(period)).then(r=>r.json()).then(d=>{
+    var map={statDrops:'total_drops',statUniqueSrc:'unique_src',statBlacklist:'bl_count',statCrowdSec:'cs_count',statSSH:'ssh_attempts',statCSAlerts:'cs_alerts_total',statSuricata:'suricata_rules',statDropRules:'nft_drop_rules'};
+    for(var id in map){
+      var el=document.getElementById(id);
+      if(el&&d[map[id]]!==undefined){
+        var nv=d[map[id]].toString();
+        if(el.textContent!==nv){el.textContent=nv;el.style.transition='color .3s';el.style.color='var(--accent)';setTimeout(function(e){e.style.color='';}.bind(null,el),600);}
+      }
+    }
+  }).catch(()=>{});
+},30000);
+</script>
+{% endblock %}

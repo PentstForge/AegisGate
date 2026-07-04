@@ -1,0 +1,557 @@
+{% extends "base.html" %}
+{% block title %}VPN Management — AegisGate{% endblock %}
+{% block page_title %}VPN Management{% endblock %}
+{% block head %}
+<style>
+.vpn-page{display:flex;flex-direction:column;gap:14px}
+.peer-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:14px}
+.peer-card{background:var(--bg-card);border:1px solid var(--border);border-radius:16px;padding:15px;position:relative;transition:.18s ease;overflow:hidden;box-shadow:0 8px 22px rgba(0,0,0,.10)}
+.peer-card:before{content:'';position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--text-muted)}
+.peer-card:hover{border-color:color-mix(in srgb,var(--accent) 45%,var(--border));transform:translateY(-2px);box-shadow:0 14px 30px rgba(0,0,0,.16)}
+.peer-card.connected:before{background:var(--success)}
+.peer-card.disconnected:before{background:var(--text-muted)}
+.peer-card.disabled{opacity:.58}
+.peer-card:hover.disabled{opacity:.78}
+.peer-header{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:11px}
+.peer-name{font-weight:850;font-size:15px;display:flex;align-items:center;gap:8px;color:var(--text-primary);min-width:0}
+.peer-name-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dot{width:10px;height:10px;border-radius:50%;display:inline-block;flex-shrink:0;background:var(--text-muted)}
+.dot.online{background:var(--success);box-shadow:0 0 0 5px color-mix(in srgb,var(--success) 14%,transparent)}
+.dot.offline{background:var(--text-muted)}
+.peer-badges{display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}
+.badge{padding:3px 8px;border-radius:999px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;border:1px solid transparent}
+.badge.internet{background:color-mix(in srgb,var(--success) 12%,transparent);color:var(--success);border-color:color-mix(in srgb,var(--success) 32%,transparent)}
+.badge.lan{background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--accent);border-color:color-mix(in srgb,var(--accent) 32%,transparent)}
+.badge.dmz{background:color-mix(in srgb,var(--warning) 13%,transparent);color:var(--warning);border-color:color-mix(in srgb,var(--warning) 32%,transparent)}
+.badge.custom{background:rgba(163,113,247,.13);color:#a371f7;border-color:rgba(163,113,247,.34)}
+.badge.disabled{background:color-mix(in srgb,var(--text-muted) 12%,transparent);color:var(--text-muted);border-color:color-mix(in srgb,var(--text-muted) 25%,transparent)}
+.peer-meta{font-size:12px;color:var(--text-secondary);line-height:1.75;margin-bottom:11px;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:12px;padding:10px}
+.peer-meta .lbl{color:var(--text-muted);min-width:82px;display:inline-block;font-weight:750}
+.peer-meta code{font-family:'JetBrains Mono','SFMono-Regular',Consolas,monospace;color:var(--text-primary)}
+.peer-stats{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+.peer-stats .st{display:flex;flex-direction:column;gap:2px;background:color-mix(in srgb,var(--bg-primary) 58%,transparent);border:1px solid var(--border);border-radius:12px;padding:9px;text-align:center;min-width:0}
+.peer-stats .st-val{font-weight:900;font-size:15px;color:var(--text-primary);font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.peer-stats .st-lbl{font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;font-weight:800}
+.peer-actions{display:flex;gap:6px;flex-wrap:wrap}
+.peer-actions .btn{font-size:11px;padding:6px 10px;border-radius:8px}
+.btn-green{background:var(--success)!important;color:#fff!important;border-color:var(--success)!important}
+.btn-red{background:var(--danger)!important;color:#fff!important;border-color:var(--danger)!important}
+.btn-blue{background:var(--accent)!important;color:#fff!important;border-color:var(--accent)!important}
+.modal-overlay{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.65);z-index:1000;align-items:center;justify-content:center}
+.modal-overlay.show{display:flex}
+.modal{background:var(--bg-card);border-radius:14px;padding:24px;max-width:640px;width:92%;max-height:85vh;overflow-y:auto;border:1px solid var(--border);box-shadow:0 8px 32px rgba(0,0,0,.4)}
+.modal h3{margin-top:0;margin-bottom:16px;display:flex;align-items:center;gap:8px}
+.config-box{background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:14px;font-family:'Courier New',monospace;font-size:12px;white-space:pre-wrap;word-break:break-all;margin:12px 0;line-height:1.5}
+.qr-box{text-align:center;margin:12px 0}
+.qr-box img{max-width:300px;border:2px solid var(--border);border-radius:10px;background:#fff;padding:8px}
+.form-row{margin-bottom:14px}
+.form-row label{display:block;font-size:12px;color:var(--text-secondary);margin-bottom:4px;font-weight:600}
+.form-row input,.form-row select,.form-row textarea{width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-primary);color:var(--text-primary);font-size:13px;box-sizing:border-box;transition:border-color .2s}
+.form-row input:focus,.form-row select:focus,.form-row textarea:focus{border-color:var(--accent);outline:none}
+.form-row textarea{min-height:60px;resize:vertical}
+.acl-section{background:var(--bg-primary);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:14px}
+.acl-section h4{margin:0 0 12px 0;font-size:13px;color:var(--accent)}
+.acl-toggle{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)}
+.acl-toggle:last-child{border-bottom:none}
+.acl-toggle label{font-size:13px;cursor:pointer;display:flex;align-items:center;gap:8px}
+.toggle-switch{position:relative;width:44px;height:24px;display:inline-block}
+.toggle-switch input{opacity:0;width:0;height:0}
+.toggle-slider{position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:#6e7681;border-radius:24px;transition:.3s}
+.toggle-slider:before{position:absolute;content:"";height:18px;width:18px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.3s}
+.toggle-switch input:checked+.toggle-slider{background:#2ecc71}
+.toggle-switch input:checked+.toggle-slider:before{transform:translateX(20px)}
+.acl-nets{margin-top:8px}
+.acl-net-item{display:flex;align-items:center;gap:8px;padding:4px 0}
+.acl-net-item input[type="checkbox"]{width:16px;height:16px;accent-color:var(--accent)}
+.acl-net-item span{font-size:12px;font-family:monospace}
+.events-panel{background:var(--bg-card);border:1px solid var(--border);border-radius:16px;padding:12px;box-shadow:0 8px 22px rgba(0,0,0,.10)}
+.event-item{display:grid;grid-template-columns:155px minmax(120px,.5fr) auto minmax(0,1fr);gap:10px;padding:10px;border-bottom:1px solid color-mix(in srgb,var(--border) 65%,transparent);font-size:12px;align-items:center}
+.event-item:last-child{border-bottom:0}
+.event-item .ev-time{color:var(--text-muted);font-family:monospace;font-size:11px}
+.event-item .ev-peer{color:var(--accent);font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.event-item .ev-type{padding:4px 9px;border-radius:999px;font-size:10px;font-weight:850;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap}
+.ev-type.handshake{background:color-mix(in srgb,var(--success) 13%,transparent);color:var(--success);border:1px solid color-mix(in srgb,var(--success) 32%,transparent)}
+.tab-content{display:none}
+.tab-content.active{display:block}
+.kpi-grid.vpn-6col{grid-template-columns:repeat(6,minmax(0,1fr))}
+@media(max-width:1200px){.kpi-grid.vpn-6col{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:820px){.peer-grid{grid-template-columns:1fr}.event-item{grid-template-columns:1fr}.peer-header{flex-direction:column}.peer-badges{justify-content:flex-start}}
+</style>
+{% endblock %}
+{% block content %}
+<div class="vpn-page">
+<section class="page-hero">
+    <div class="page-hero-top">
+        <div>
+            <div class="page-kicker">WireGuard control plane</div>
+            <div class="page-title">VPN Management</div>
+            <div class="page-subtitle">Manage the WireGuard server, peer access policies, client configs, QR onboarding and recent connection activity from one operational panel. <a href="https://www.wireguard.com/install/" target="_blank" rel="noopener noreferrer" style="color:var(--accent);text-decoration:underline">&#x1F4E5; Download WireGuard Client</a></div>
+        </div>
+        <div class="page-state-pill {% if server_status.running %}active{% else %}stopped{% endif %}" id="vpn-status-pill">
+            <span class="state-dot"></span><span id="vpn-status-value">{% if server_status.running %}Running{% else %}Stopped{% endif %}</span>
+        </div>
+    </div>
+    <div class="kpi-grid vpn-6col">
+        <div class="kpi-card {% if server_status.running %}success{% endif %}"><div class="kpi-label">Server</div><div class="kpi-value">{% if server_status.running %}Online{% else %}Offline{% endif %}</div><div class="kpi-note">Interface {{ server_status.interface or 'wg0' }}</div></div>
+        <div class="kpi-card accent"><div class="kpi-label">Address</div><div class="kpi-value">{{ server_config.address if server_config else '&#x2014;' }}</div><div class="kpi-note">Tunnel CIDR</div></div>
+        <div class="kpi-card"><div class="kpi-label">Listen Port</div><div class="kpi-value">{{ server_config.listen_port if server_config else '&#x2014;' }}</div><div class="kpi-note">UDP ingress</div></div>
+        <div class="kpi-card"><div class="kpi-label">Peers</div><div class="kpi-value">{{ peers|length }}</div><div class="kpi-note">Configured clients</div></div>
+        <div class="kpi-card success"><div class="kpi-label">Online</div><div class="kpi-value" id="vpn-online-value">{{ online_count }}</div><div class="kpi-note">Active handshakes</div></div>
+        <div class="kpi-card warn"><div class="kpi-label">24h Traffic</div><div class="kpi-value">{{ format_bytes((bw.total_rx or 0) + (bw.total_tx or 0)) }}</div><div class="kpi-note">RX + TX total</div></div>
+    </div>
+</section>
+
+{% if request.args.get('message') %}
+<div class="flash-banner {% if request.args.get('error') %}error{% endif %}">{{ request.args.get('message') }}</div>
+{% endif %}
+
+<section class="page-toolbar">
+    <div class="page-tabs">
+        <button class="page-tab active" onclick="switchTab('peers',this)">&#x1F465; Peers</button>
+        <button class="page-tab" onclick="switchTab('events',this)">&#x1F4CB; Events</button>
+    </div>
+    <div class="page-actions">
+        {% if server_config %}
+        {% if server_status.running %}
+        <form method="post" action="/vpn/stop"><button type="submit" class="btn btn-red">&#x23F9; Stop</button></form>
+        <form method="post" action="/vpn/restart"><button type="submit" class="btn">&#x1F504; Restart</button></form>
+        {% else %}
+        <form method="post" action="/vpn/start"><button type="submit" class="btn btn-green">&#x25B6; Start</button></form>
+        {% endif %}
+        <button class="btn btn-blue" onclick="openModal('modal-add')">&#x2795; Add Peer</button>
+        <button class="btn" onclick="openModal('modal-settings')">&#x2699; Settings</button>
+        {% else %}
+        <button class="btn btn-green" onclick="openModal('modal-init')">&#x1F6E1; Initialize WireGuard Server</button>
+        {% endif %}
+    </div>
+</section>
+
+<div id="tab-peers" class="tab-content active">
+{% if peers %}
+<div class="peer-grid">
+{% for p in peers %}
+<div class="peer-card {% if not p.enabled %}disabled{% elif p.connected %}connected{% else %}disconnected{% endif %}" data-peer-id="{{ p.id }}">
+    <div class="peer-header">
+        <div class="peer-name">
+            <span class="dot {% if p.connected %}online{% else %}offline{% endif %}"></span>
+            <span class="peer-name-text">{{ p.name }}</span>
+            {% if not p.enabled %}<span class="badge disabled">Disabled</span>{% endif %}
+        </div>
+        <div class="peer-badges">
+            {% if p.acl.internet %}<span class="badge internet">Internet</span>{% endif %}
+            {% if p.acl.lan %}<span class="badge lan">LAN</span>{% endif %}
+            {% if p.acl.dmz %}<span class="badge dmz">DMZ</span>{% endif %}
+            {% for cn in p.acl.custom_networks %}<span class="badge custom" data-custom-network="{{ cn }}">{{ cn }}</span>{% endfor %}
+            {% if not p.acl.internet and not p.acl.lan and not p.acl.dmz and not p.acl.custom_networks %}<span class="badge disabled">No Access</span>{% endif %}
+        </div>
+    </div>
+    <div class="peer-meta">
+        <div><span class="lbl">IP:</span> <code>{{ p.address }}</code></div>
+        <div><span class="lbl">Allowed:</span> <code style="font-size:11px;">{{ p.allowed_ips }}</code></div>
+        <div><span class="lbl">Endpoint:</span> {{ p.endpoint or 'Not connected' }}</div>
+        <div><span class="lbl">Last Seen:</span> {{ p.last_handshake or 'Never' }}</div>
+    </div>
+    <div class="peer-stats">
+        <div class="st"><span class="st-val">{{ format_bytes(p.transfer_tx) }}</span><span class="st-lbl">Download</span></div>
+        <div class="st"><span class="st-val">{{ format_bytes(p.transfer_rx) }}</span><span class="st-lbl">Upload</span></div>
+    </div>
+    <div class="peer-actions">
+        <button class="btn btn-blue" onclick='showConfig({{ p.id|tojson }})'>&#x1F4CB; Config</button>
+        <button class="btn" onclick='showQR({{ p.id|tojson }})'>&#x1F4F2; QR</button>
+        <button class="btn" onclick='editACL({{ p.id|tojson }}, {{ p.name|tojson }})'>&#x1F512; Access</button>
+        <form method="post" action="/vpn/toggle/{{ p.id }}"><button type="submit" class="btn">{% if p.enabled %}&#x23F8; Disable{% else %}&#x25B6; Enable{% endif %}</button></form>
+        <form method="post" action="/vpn/remove/{{ p.id }}" onsubmit='return confirm({{ ("Remove " ~ p.name ~ "? This cannot be undone.")|tojson }})'><button type="submit" class="btn btn-red">&#x1F5D1;</button></form>
+    </div>
+</div>
+{% endfor %}
+</div>
+{% else %}
+<div class="mod-empty-state">
+    <div class="icon">&#x1F310;</div>
+    {% if server_config %}
+    <p>No VPN peers yet.</p>
+    <button class="btn btn-blue" onclick="openModal('modal-add')">&#x2795; Add First Peer</button>
+    {% else %}
+    <p>WireGuard server not configured.</p>
+    <button class="btn btn-green" onclick="openModal('modal-init')">&#x1F6E1; Initialize Server</button>
+    {% endif %}
+</div>
+{% endif %}
+</div>
+
+<div id="tab-events" class="tab-content">
+<div class="events-panel" id="events-container">
+{% if events %}
+{% for ev in events %}
+<div class="event-item">
+    <span class="ev-time">{{ ev.ts_formatted }}</span>
+    <span class="ev-peer">{{ ev.name }}</span>
+    <span class="ev-type handshake">{{ ev.type }}</span>
+    {% if ev.endpoint %}<span style="color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ ev.endpoint }}</span>{% endif %}
+</div>
+{% endfor %}
+{% else %}<div class="mod-empty-state"><div class="icon">&#x1F4CB;</div><p>No events recorded yet.</p></div>{% endif %}
+</div>
+</div>
+</div>
+
+<!-- Add Peer Modal -->
+<div class="modal-overlay" id="modal-add" onclick="if(event.target===this)closeModal('modal-add')">
+<div class="modal">
+    <h3>&#x2795; Add New Peer</h3>
+    <form method="post" action="/vpn/add-peer">
+        <div class="form-row"><label>Name</label><input type="text" name="name" placeholder="e.g. Phone, Laptop, User1" required></div>
+        <div class="acl-section">
+            <h4>&#x1F512; Access Control</h4>
+            <div class="acl-toggle"><label for="acl-inet"><strong>&#x1F310; Full Internet Access</strong><br><span style="font-size:11px;color:var(--text-muted)">Route all traffic (0.0.0.0/0) through VPN</span></label>
+            <label class="toggle-switch"><input type="checkbox" id="acl-inet" name="internet" value="1" onchange="toggleInetDeps()"><span class="toggle-slider"></span></label></div>
+            <div class="acl-toggle" id="acl-lan-row"><label for="acl-lan"><strong>&#x1F3E0; LAN Access</strong><br><span style="font-size:11px;color:var(--text-muted)">192.168.1.0/24, 10.0.0.0/24</span></label>
+            <label class="toggle-switch"><input type="checkbox" id="acl-lan" name="lan" value="1"><span class="toggle-slider"></span></label></div>
+            <div class="acl-toggle" id="acl-dmz-row"><label for="acl-dmz"><strong>&#x1F5A5; DMZ Server</strong><br><span style="font-size:11px;color:var(--text-muted)">Access the server only ({{ lan_ip }})</span></label>
+            <label class="toggle-switch"><input type="checkbox" id="acl-dmz" name="dmz" value="1"><span class="toggle-slider"></span></label></div>
+        </div>
+        <div class="form-row"><label>Custom Networks (comma-separated CIDR, optional)</label><input type="text" name="custom_networks" placeholder="e.g. 192.168.100.0/24, 10.10.0.0/16"></div>
+        <div class="form-row"><label>Keepalive (seconds, 0=off)</label><input type="number" name="keepalive" value="25" min="0" max="600"></div>
+        <div class="form-row"><label>Notes</label><textarea name="notes" placeholder="Optional notes about this peer..."></textarea></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+            <button type="button" class="btn" onclick="closeModal('modal-add')">Cancel</button>
+            <button type="submit" class="btn btn-green">Add Peer</button>
+        </div>
+    </form>
+</div>
+</div>
+
+<!-- Edit ACL Modal -->
+<div class="modal-overlay" id="modal-acl" onclick="if(event.target===this)closeModal('modal-acl')">
+<div class="modal">
+    <h3>&#x1F512; Access Control: <span id="acl-peer-name"></span></h3>
+    <form method="post" action="/vpn/acl" id="acl-form">
+        <input type="hidden" name="peer_id" id="acl-peer-id">
+        <div class="acl-section">
+            <h4>Network Access</h4>
+            <div class="acl-toggle"><label><strong>&#x1F310; Full Internet Access</strong><br><span style="font-size:11px;color:var(--text-muted)">All traffic routes through VPN (AllowedIPs: 0.0.0.0/0)</span></label>
+            <label class="toggle-switch"><input type="checkbox" id="edit-inet" name="internet" value="1" onchange="toggleEditInetDeps()"><span class="toggle-slider"></span></label></div>
+            <div class="acl-toggle" id="edit-lan-row"><label><strong>&#x1F3E0; LAN Access</strong><br><span style="font-size:11px;color:var(--text-muted)">Access local network: 192.168.1.0/24</span></label>
+            <label class="toggle-switch"><input type="checkbox" id="edit-lan" name="lan" value="1"><span class="toggle-slider"></span></label></div>
+            <div class="acl-toggle" id="edit-dmz-row"><label><strong>&#x1F5A5; DMZ Server</strong><br><span style="font-size:11px;color:var(--text-muted)">Access the server only ({{ lan_ip }})</span></label>
+            <label class="toggle-switch"><input type="checkbox" id="edit-dmz" name="dmz" value="1"><span class="toggle-slider"></span></label></div>
+        </div>
+        <div class="acl-section">
+            <h4>Quick Presets</h4>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+                <button type="button" class="btn" onclick="applyPreset('full')" style="font-size:11px">&#x1F310; Full Access</button>
+                <button type="button" class="btn" onclick="applyPreset('lan')" style="font-size:11px">&#x1F3E0; LAN Only</button>
+                <button type="button" class="btn" onclick="applyPreset('dmz')" style="font-size:11px">&#x1F5A5; DMZ Only</button>
+                <button type="button" class="btn" onclick="applyPreset('none')" style="font-size:11px">&#x1F6AB; No Access</button>
+            </div>
+        </div>
+        <div class="form-row"><label>Custom Networks</label>
+            <div id="custom-nets-tags" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px"></div>
+            <div style="display:flex;gap:6px">
+                <input type="text" id="edit-custom-input" placeholder="e.g. 192.168.100.0/24" style="flex:1">
+                <button type="button" class="btn" onclick="addCustomNet()" style="font-size:12px;padding:4px 10px">Add</button>
+            </div>
+            <input type="hidden" name="custom_networks" id="edit-custom">
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+            <button type="button" class="btn" onclick="closeModal('modal-acl')">Cancel</button>
+            <button type="submit" class="btn btn-green">Apply Access Rules</button>
+        </div>
+    </form>
+</div>
+</div>
+
+<!-- Server Settings Modal -->
+<div class="modal-overlay" id="modal-settings" onclick="if(event.target===this)closeModal('modal-settings')">
+<div class="modal">
+    <h3>&#x2699; Server Settings</h3>
+    <form method="post" action="/vpn/settings">
+        <div class="form-row"><label>Server Address (CIDR)</label><input type="text" name="address" value="{{ server_config.address }}" required></div>
+        <div class="form-row"><label>Listen Port</label><input type="number" name="listen_port" value="{{ server_config.listen_port }}" min="1024" max="65535" required></div>
+        <div class="form-row"><label>DNS Servers (for client configs)</label><input type="text" name="dns" value="{{ server_config.dns }}"></div>
+        <div class="form-row"><label>MTU</label><input type="number" name="mtu" value="{{ server_config.mtu }}" min="1280" max="1500"></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+            <button type="button" class="btn" onclick="closeModal('modal-settings')">Cancel</button>
+            <button type="submit" class="btn btn-green">Save</button>
+        </div>
+    </form>
+</div>
+</div>
+
+<!-- Init Server Modal -->
+<div class="modal-overlay" id="modal-init" onclick="if(event.target===this)closeModal('modal-init')">
+<div class="modal">
+    <h3>&#x1F6E1; Initialize WireGuard Server</h3>
+    <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px">This will generate keys and create the WireGuard server configuration.</p>
+    <form method="post" action="/vpn/init">
+        <div class="form-row"><label>Server Address (CIDR)</label><input type="text" name="address" value="10.0.0.1/24" required></div>
+        <div class="form-row"><label>Listen Port</label><input type="number" name="listen_port" value="51820" min="1024" max="65535" required></div>
+        <div class="form-row"><label>DNS Servers (for clients)</label><input type="text" name="dns" value="1.1.1.1, 8.8.8.8"></div>
+        <div class="form-row"><label>MTU</label><input type="number" name="mtu" value="1420" min="1280" max="1500"></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+            <button type="button" class="btn" onclick="closeModal('modal-init')">Cancel</button>
+            <button type="submit" class="btn btn-green">Initialize & Start</button>
+        </div>
+    </form>
+</div>
+</div>
+
+<!-- Config Modal -->
+<div class="modal-overlay" id="modal-config" onclick="if(event.target===this)closeModal('modal-config')">
+<div class="modal">
+    <h3>&#x1F4CB; Peer Configuration</h3>
+    <p style="font-size:12px;color:var(--text-secondary);margin-bottom:8px" id="config-peer-name"></p>
+    <div class="config-box" id="config-text"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn btn-blue" onclick="copyConfig()">&#x1F4CB; Copy</button>
+        <button class="btn" onclick="downloadConfig()">&#x1F4E5; Download .conf</button>
+        <button class="btn" onclick="closeModal('modal-config')">Close</button>
+    </div>
+</div>
+</div>
+
+<!-- QR Modal -->
+<div class="modal-overlay" id="modal-qr" onclick="if(event.target===this)closeModal('modal-qr')">
+<div class="modal">
+    <h3>&#x1F4F2; QR Code</h3>
+    <p style="font-size:12px;color:var(--text-secondary)" id="qr-peer-name"></p>
+    <div class="qr-box" id="qr-content"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn" onclick="closeModal('modal-qr')">Close</button>
+    </div>
+</div>
+</div>
+
+<script>
+let currentConfig = '';
+let currentPeerName = '';
+
+function switchTab(tab, btn) {
+    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.page-tab').forEach(b => b.classList.remove('active'));
+    document.getElementById('tab-' + tab).classList.add('active');
+    btn.classList.add('active');
+}
+
+function openModal(id) { document.getElementById(id).classList.add('show'); }
+function closeModal(id) { document.getElementById(id).classList.remove('show'); }
+
+function toggleInetDeps() {
+    const inetOn = document.getElementById('acl-inet').checked;
+    const lanRow = document.getElementById('acl-lan-row');
+    const dmzRow = document.getElementById('acl-dmz-row');
+    if (inetOn) {
+        document.getElementById('acl-lan').checked = false;
+        document.getElementById('acl-dmz').checked = false;
+        lanRow.style.opacity = '0.4';
+        dmzRow.style.opacity = '0.4';
+        lanRow.querySelector('input').disabled = true;
+        dmzRow.querySelector('input').disabled = true;
+    } else {
+        lanRow.style.opacity = '1';
+        dmzRow.style.opacity = '1';
+        lanRow.querySelector('input').disabled = false;
+        dmzRow.querySelector('input').disabled = false;
+    }
+}
+
+function toggleEditInetDeps() {
+    const inetOn = document.getElementById('edit-inet').checked;
+    const lanRow = document.getElementById('edit-lan-row');
+    const dmzRow = document.getElementById('edit-dmz-row');
+    if (inetOn) {
+        document.getElementById('edit-lan').checked = false;
+        document.getElementById('edit-dmz').checked = false;
+        lanRow.style.opacity = '0.4';
+        dmzRow.style.opacity = '0.4';
+        lanRow.querySelector('input').disabled = true;
+        dmzRow.querySelector('input').disabled = true;
+    } else {
+        lanRow.style.opacity = '1';
+        dmzRow.style.opacity = '1';
+        lanRow.querySelector('input').disabled = false;
+        dmzRow.querySelector('input').disabled = false;
+    }
+}
+
+function applyPreset(type) {
+    const inet = document.getElementById('edit-inet');
+    const lan = document.getElementById('edit-lan');
+    const dmz = document.getElementById('edit-dmz');
+    inet.checked = (type === 'full');
+    lan.checked = (type === 'full' || type === 'lan');
+    dmz.checked = (type === 'dmz');
+    toggleEditInetDeps();
+    if (type === 'none') { inet.checked = false; lan.checked = false; dmz.checked = false; }
+}
+
+function showConfig(peerId) {
+    fetch('/vpn/peer-config/' + peerId).then(r => r.json()).then(data => {
+        currentConfig = data.config || '';
+        currentPeerName = data.name || peerId;
+        document.getElementById('config-peer-name').textContent = currentPeerName;
+        document.getElementById('config-text').textContent = currentConfig;
+        openModal('modal-config');
+    });
+}
+
+function showQR(peerId) {
+    fetch('/vpn/peer-qr/' + peerId).then(r => r.json()).then(data => {
+        currentPeerName = data.name || peerId;
+        document.getElementById('qr-peer-name').textContent = currentPeerName;
+        if (data.qr_base64) {
+            document.getElementById('qr-content').innerHTML = '<img src="data:image/png;base64,' + data.qr_base64 + '" alt="QR Code">';
+        } else {
+            document.getElementById('qr-content').innerHTML = '<p>QR code not available</p>';
+        }
+        openModal('modal-qr');
+    });
+}
+
+function editACL(peerId, peerName) {
+    document.getElementById('acl-peer-id').value = peerId;
+    document.getElementById('acl-peer-name').textContent = peerName;
+    const card = document.querySelector('[data-peer-id="' + peerId + '"]');
+    customNetworks = [];
+    if (card) {
+        const badges = card.querySelectorAll('.badge');
+        document.getElementById('edit-inet').checked = !!card.querySelector('.badge.internet');
+        document.getElementById('edit-lan').checked = !!card.querySelector('.badge.lan');
+        document.getElementById('edit-dmz').checked = !!card.querySelector('.badge.dmz');
+        card.querySelectorAll('[data-custom-network]').forEach(function(el) {
+            customNetworks.push(el.getAttribute('data-custom-network'));
+        });
+    }
+    renderCustomTags();
+    toggleEditInetDeps();
+    openModal('modal-acl');
+}
+
+var customNetworks = [];
+
+function renderCustomTags() {
+    var container = document.getElementById('custom-nets-tags');
+    container.innerHTML = '';
+    customNetworks.forEach(function(net, idx) {
+        var tag = document.createElement('span');
+        tag.className = 'badge custom';
+        tag.style.cssText = 'display:inline-flex;align-items:center;gap:4px;cursor:default;';
+        tag.appendChild(document.createTextNode(net + ' '));
+        var remove = document.createElement('span');
+        remove.textContent = 'x';
+        remove.style.cssText = 'cursor:pointer;font-weight:bold;color:#f85149;';
+        remove.onclick = function() { removeCustomNet(idx); };
+        tag.appendChild(remove);
+        container.appendChild(tag);
+    });
+    document.getElementById('edit-custom').value = customNetworks.join(',');
+}
+
+function addCustomNet() {
+    var input = document.getElementById('edit-custom-input');
+    var val = input.value.trim();
+    if (!val) return;
+    var parts = val.split(',');
+    parts.forEach(function(p) {
+        p = p.trim();
+        if (p && !customNetworks.includes(p)) {
+            customNetworks.push(p);
+        }
+    });
+    input.value = '';
+    renderCustomTags();
+}
+
+function removeCustomNet(idx) {
+    customNetworks.splice(idx, 1);
+    renderCustomTags();
+}
+
+document.getElementById('edit-custom-input').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') { e.preventDefault(); addCustomNet(); }
+});
+
+function copyConfig() {
+    navigator.clipboard.writeText(currentConfig).then(() => {
+        const btn = event.target;
+        const orig = btn.innerHTML;
+        btn.innerHTML = '&#x2713; Copied!';
+        setTimeout(() => btn.innerHTML = orig, 2000);
+    });
+}
+
+function downloadConfig() {
+    const blob = new Blob([currentConfig], {type: 'text/plain'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = (currentPeerName || 'wg0-client') + '.conf';
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+setInterval(function() {
+    fetch('/api/vpn/status').then(r => r.json()).then(data => {
+        const statusEl = document.getElementById('vpn-status-value');
+        const statusPill = document.getElementById('vpn-status-pill');
+        const onlineEl = document.getElementById('vpn-online-value');
+        if (statusEl) {
+            statusEl.textContent = data.server_running ? 'Running' : 'Stopped';
+        }
+        if (statusPill) {
+            statusPill.classList.toggle('active', !!data.server_running);
+            statusPill.classList.toggle('stopped', !data.server_running);
+        }
+        if (onlineEl) {
+            onlineEl.textContent = data.online_count;
+        }
+        data.peers.forEach(function(p) {
+            const card = document.querySelector('[data-peer-id="' + p.id + '"]');
+            if (!card) return;
+            const dot = card.querySelector('.dot');
+            if (dot) {
+                dot.className = 'dot ' + (p.connected ? 'online' : 'offline');
+            }
+            card.className = card.className.replace(/\bconnected\b|\bdisconnected\b|\bdisabled\b/g, '').trim();
+            card.classList.add(p.enabled ? (p.connected ? 'connected' : 'disconnected') : 'disabled');
+            const epEl = card.querySelector('.peer-meta span:nth-child(6)');
+            const metaDivs = card.querySelectorAll('.peer-meta div');
+            metaDivs.forEach(function(div) {
+                const lbl = div.querySelector('.lbl');
+                if (lbl && lbl.textContent.trim() === 'Endpoint:') {
+                    div.innerHTML = '<span class="lbl">Endpoint:</span> ' + (p.endpoint || 'Not connected');
+                }
+                if (lbl && lbl.textContent.trim() === 'Last Seen:') {
+                    div.innerHTML = '<span class="lbl">Last Seen:</span> ' + (p.last_handshake || 'Never');
+                }
+            });
+            const stVals = card.querySelectorAll('.st-val');
+            if (stVals.length >= 2) {
+                stVals[0].textContent = formatB(p.transfer_rx);
+                stVals[1].textContent = formatB(p.transfer_tx);
+            }
+        });
+    });
+}, 5000);
+
+setInterval(function() {
+    var evTab = document.getElementById('tab-events');
+    if (evTab && evTab.classList.contains('active')) {
+        fetch('/api/vpn/status').then(r => r.json()).then(data => {
+            if (data.events) {
+                var evContainer = document.getElementById('events-container');
+                if (evContainer) {
+                    evContainer.innerHTML = data.events.map(function(e) {
+                        return '<div class="event-item"><span class="ev-time">' + (e.ts_formatted || '') +
+                            '</span><span class="ev-peer">' + (e.name || '') +
+                            '</span><span class="ev-type handshake">' + (e.type || '') + '</span>' +
+                            (e.endpoint ? '<span style="color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + e.endpoint + '</span>' : '') +
+                            '</div>';
+                    }).join('') || '<div class="mod-empty-state"><div class="icon">📋</div><p>No events recorded yet.</p></div>';
+                }
+            }
+        }).catch(function(){});
+    }
+}, 10000);
+</script>
+{% endblock %}

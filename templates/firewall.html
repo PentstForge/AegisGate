@@ -1,0 +1,412 @@
+{% extends "base.html" %}
+{% block title %}Firewall & NAT — AegisGate{% endblock %}
+{% block page_title %}Firewall & NAT{% endblock %}
+{% block head %}
+<style>
+.fw-page{display:flex;flex-direction:column;gap:14px}
+.tab-content{display:none}
+.tab-content.active{display:block}
+.fw-rule-row{display:flex;align-items:center;gap:8px;padding:10px 14px;background:var(--bg-card);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:10px;margin-bottom:6px;font-size:12px;transition:.15s ease}
+.fw-rule-row:hover{background:color-mix(in srgb,var(--accent) 6%,transparent);border-color:color-mix(in srgb,var(--accent) 45%,var(--border));transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.10)}
+.fw-rule-row.accept-row{border-left-color:var(--success)}
+.fw-rule-row.drop-row{border-left-color:var(--danger)}
+.fw-rule-row.dnat-row{border-left-color:var(--accent)}
+.fw-rule-row.masq-row{border-left-color:var(--warning)}
+.fw-rule-row.wg-row{border-left-color:#a371f7}
+.fw-rule-row.jump-row{border-left-color:#58a6ff}
+.fw-rule-proto{color:#fff;padding:3px 9px;border-radius:6px;font-size:10px;font-weight:800;min-width:38px;text-align:center;text-transform:uppercase}
+.fw-rule-proto.tcp{background:var(--success)}
+.fw-rule-proto.udp{background:var(--accent)}
+.fw-rule-proto.icmp{background:var(--warning)}
+.fw-rule-detail{flex:1;color:var(--text-secondary);min-width:0;overflow:hidden}
+.fw-rule-detail strong{color:var(--text-primary)}
+.fw-rule-detail code{font-family:'JetBrains Mono','SFMono-Regular',Consolas,monospace;font-size:10px;word-break:break-all}
+.fw-rule-counter{font-size:10px;color:var(--text-muted);min-width:80px;text-align:right;white-space:nowrap}
+.fw-rule-btns{display:flex;gap:4px;flex-shrink:0}
+.fw-chain-label{font-size:10px;color:var(--text-muted);background:var(--bg-tertiary);padding:3px 8px;border-radius:6px;font-weight:700}
+.fw-arrow{color:var(--accent);font-weight:900}
+.fw-add-form{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+.fw-add-form label{font-size:11px;color:var(--text-secondary);font-weight:700;min-width:auto}
+.fw-add-form input[type="text"],.fw-add-form input[type="number"]{padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-primary);color:var(--text-primary);font-size:12px;width:140px;box-sizing:border-box;transition:border-color .2s}
+.fw-add-form input:focus,.fw-add-form select:focus{border-color:var(--accent);outline:none}
+.fw-add-form select{padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-primary);color:var(--text-primary);font-size:12px}
+.fw-raw-section{margin-top:8px}
+.fw-chain-header{color:var(--text-muted);font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;margin:12px 0 6px;padding:6px 10px;background:var(--bg-tertiary);border-radius:8px;border:1px solid var(--border)}
+.fw-modal-btns{display:flex;gap:8px;justify-content:flex-end;margin-top:18px}
+@media(max-width:760px){.fw-add-form{flex-direction:column;align-items:stretch}.fw-add-form input[type="text"],.fw-add-form input[type="number"]{width:100%}.fw-rule-row{flex-wrap:wrap}.fw-rule-counter{min-width:auto}}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="fw-page">
+<section class="page-hero">
+  <div class="page-hero-top">
+    <div>
+      <div class="page-kicker">Firewall & NAT control plane</div>
+      <div class="page-title">Firewall & NAT</div>
+      <div class="page-subtitle">Manage nftables DNAT port forwards, masquerade rules, input and forward chain policies, and WireGuard ACL filters from a single control surface.</div>
+    </div>
+    <div class="page-state-pill {% if overview.input_drop > 0 or overview.forward_drop > 0 %}active{% else %}stopped{% endif %}">
+      <span class="state-dot"></span>
+      <span>{% if overview.input_drop > 0 or overview.forward_drop > 0 %}Active{% else %}Idle{% endif %}</span>
+    </div>
+  </div>
+  <div class="kpi-grid">
+    <div class="kpi-card accent"><div class="kpi-label">DNAT Rules</div><div class="kpi-value">{{ overview.dnat_rules }}</div><div class="kpi-note">Port forwards</div></div>
+    <div class="kpi-card warn"><div class="kpi-label">Masquerade</div><div class="kpi-value">{{ overview.masquerade_rules }}</div><div class="kpi-note">SNAT rules</div></div>
+    <div class="kpi-card success"><div class="kpi-label">Input Accept</div><div class="kpi-value">{{ overview.input_accept }}</div><div class="kpi-note">Allowed</div></div>
+    <div class="kpi-card danger"><div class="kpi-label">Input Drop</div><div class="kpi-value">{{ overview.input_drop }}</div><div class="kpi-note">Blocked</div></div>
+    <div class="kpi-card success"><div class="kpi-label">Fwd Accept</div><div class="kpi-value">{{ overview.forward_accept }}</div><div class="kpi-note">Allowed</div></div>
+    <div class="kpi-card danger"><div class="kpi-label">Fwd Drop</div><div class="kpi-value">{{ overview.forward_drop }}</div><div class="kpi-note">Blocked</div></div>
+    <div class="kpi-card purple"><div class="kpi-label">WG ACL Rules</div><div class="kpi-value">{{ overview.wg_peers }}</div><div class="kpi-note">WireGuard</div></div>
+  </div>
+</section>
+
+{% if message %}
+<div class="flash-banner {% if message_error %}error{% endif %}">{{ message }}</div>
+{% endif %}
+
+<section class="page-toolbar">
+  <div class="page-tabs">
+    <button class="page-tab {% if active_tab=='overview' %}active{% endif %}" onclick="switchTab('overview')">Overview</button>
+    <button class="page-tab {% if active_tab=='dnat' %}active{% endif %}" onclick="switchTab('dnat')">Port Forward</button>
+    <button class="page-tab {% if active_tab=='nat' %}active{% endif %}" onclick="switchTab('nat')">NAT/Masquerade</button>
+    <button class="page-tab {% if active_tab=='input' %}active{% endif %}" onclick="switchTab('input')">Input Rules</button>
+    <button class="page-tab {% if active_tab=='forward' %}active{% endif %}" onclick="switchTab('forward')">Forward Rules</button>
+  </div>
+</section>
+
+{# ===================== OVERVIEW TAB ===================== #}
+<div id="tab-overview" class="tab-content {% if active_tab=='overview' %}active{% endif %}">
+
+<div class="panel-card">
+  <div class="panel-card-title">Port Forwards (DNAT) <span>dnat rules</span></div>
+  {% for r in dnat_rules %}
+  <div class="fw-rule-row dnat-row">
+    <span class="fw-rule-proto {{ r.proto }}">{{ r.proto|upper }}</span>
+    <span class="fw-rule-detail">
+      <strong>{{ r.dport }}</strong> <span class="fw-arrow">&#x2192;</span> <strong>{{ r.target_ip }}{% if r.target_port and r.target_port != r.dport %}:{{ r.target_port }}{% endif %}</strong>
+      {% if r.iface %}<span class="fw-chain-label">{{ r.iface }}</span>{% endif %}
+      {% if r.dest %}<span style="color:var(--text-muted)">dst {{ r.dest }}</span>{% endif %}
+    </span>
+    <span class="fw-rule-counter">{{ format_bytes(r.bytes) }}</span>
+    {% if r.handle %}
+    <div class="fw-rule-btns">
+      <button class="mod-action-btn ghost" onclick="editDnat('{{ r.handle }}','{{ r.proto }}','{{ r.dport }}','{{ r.target_ip }}','{{ r.target_port or r.dport }}','{{ r.iface }}','{{ r.dest or '' }}')">&#x270E;</button>
+      <form method="post" action="/firewall/remove-dnat/{{ r.handle }}" style="margin:0;display:inline"><button type="submit" class="mod-action-btn danger" onclick="return confirm('Remove this DNAT rule?')">&#x2716;</button></form>
+    </div>
+    {% endif %}
+  </div>
+  {% endfor %}
+  {% if not dnat_rules %}
+  <div class="mod-empty-state"><div class="icon">&#x1F517;</div><p>No DNAT rules configured.</p></div>
+  {% endif %}
+</div>
+
+<div class="panel-card" style="margin-top:14px">
+  <div class="panel-card-title">Masquerade (SNAT) <span>postrouting</span></div>
+  {% for r in masq_rules %}
+  <div class="fw-rule-row masq-row">
+    <span class="mod-badge yellow">MASQ</span>
+    <span class="fw-rule-detail">
+      {% if r.dest %}<strong>{{ r.dest }}</strong>{% else %}<strong>all</strong>{% endif %}
+      {% if r.iface %}<span class="fw-chain-label">&#x2192; {{ r.iface }}</span>{% endif %}
+    </span>
+    <span class="fw-rule-counter">{{ format_bytes(r.bytes) }}</span>
+    {% if r.handle %}
+    <div class="fw-rule-btns">
+      <button class="mod-action-btn ghost" onclick="editMasq('{{ r.handle }}','{{ r.dest or '' }}','{{ r.iface }}')">&#x270E;</button>
+      <form method="post" action="/firewall/remove-masq/{{ r.handle }}" style="margin:0;display:inline"><button type="submit" class="mod-action-btn danger" onclick="return confirm('Remove this masquerade rule?')">&#x2716;</button></form>
+    </div>
+    {% endif %}
+  </div>
+  {% endfor %}
+  {% if not masq_rules %}
+  <div class="mod-empty-state"><div class="icon">&#x1F504;</div><p>No masquerade rules.</p></div>
+  {% endif %}
+</div>
+
+</div>
+
+{# ===================== DNAT TAB ===================== #}
+<div id="tab-dnat" class="tab-content {% if active_tab=='dnat' %}active{% endif %}">
+
+<div class="panel-card">
+  <div class="panel-card-title">Add Port Forward (DNAT) <span>new rule</span></div>
+  <form method="post" action="/firewall/add-dnat" class="fw-add-form">
+    <label>Protocol</label>
+    <select name="proto"><option value="tcp">TCP</option><option value="udp">UDP</option></select>
+    <label>Ext Port</label>
+    <input type="number" name="dport" placeholder="8080" required>
+    <label>Target IP</label>
+    <input type="text" name="target_ip" placeholder="192.168.1.204" value="192.168.1.204" required>
+    <label>Int Port</label>
+    <input type="number" name="target_port" placeholder="(same as ext)">
+    <label>Interface</label>
+    <select name="iface">{% for opt in iface_opts %}<option value="{{ opt.value }}">{{ opt.label }}</option>{% endfor %}</select>
+    <button type="submit" class="mod-action-btn success">&#x2795; Add</button>
+  </form>
+</div>
+
+<div class="panel-card" style="margin-top:14px">
+  <div class="panel-card-title">Current Port Forwards <span>dnat</span></div>
+  {% for r in dnat_rules %}
+  <div class="fw-rule-row dnat-row">
+    <span class="fw-rule-proto {{ r.proto }}">{{ r.proto|upper }}</span>
+    <span class="fw-rule-detail">
+      <strong>{{ r.dport }}</strong> <span class="fw-arrow">&#x2192;</span> <strong>{{ r.target_ip }}{% if r.target_port and r.target_port != r.dport %}:{{ r.target_port }}{% endif %}</strong>
+      {% if r.iface %}<span class="fw-chain-label">{{ r.iface }}</span>{% endif %}
+      {% if r.dest %}<span style="color:var(--text-muted)">dst {{ r.dest }}</span>{% endif %}
+    </span>
+    <span class="fw-rule-counter">{{ format_bytes(r.bytes) }} ({{ r.packets }} pkts)</span>
+    {% if r.handle %}
+    <div class="fw-rule-btns">
+      <button class="mod-action-btn ghost" onclick="editDnat('{{ r.handle }}','{{ r.proto }}','{{ r.dport }}','{{ r.target_ip }}','{{ r.target_port or r.dport }}','{{ r.iface }}','{{ r.dest or '' }}')">&#x270E; Edit</button>
+      <form method="post" action="/firewall/remove-dnat/{{ r.handle }}" style="margin:0;display:inline"><button type="submit" class="mod-action-btn danger" onclick="return confirm('Remove this DNAT rule?')">&#x2716; Remove</button></form>
+    </div>
+    {% endif %}
+  </div>
+  {% endfor %}
+  {% if not dnat_rules %}
+  <div class="mod-empty-state"><div class="icon">&#x1F517;</div><p>No DNAT rules configured.</p></div>
+  {% endif %}
+</div>
+
+</div>
+
+{# ===================== NAT TAB ===================== #}
+<div id="tab-nat" class="tab-content {% if active_tab=='nat' %}active{% endif %}">
+
+<div class="panel-card">
+  <div class="panel-card-title">Add Masquerade Rule <span>new rule</span></div>
+  <form method="post" action="/firewall/add-masq" class="fw-add-form">
+    <label>Source Net</label>
+    <input type="text" name="source_net" placeholder="10.0.0.0/24" required>
+    <label>Out Iface</label>
+    <select name="iface">{% for opt in iface_opts %}<option value="{{ opt.value }}">{{ opt.label }}</option>{% endfor %}</select>
+    <button type="submit" class="mod-action-btn success">&#x2795; Add</button>
+  </form>
+</div>
+
+<div class="panel-card" style="margin-top:14px">
+  <div class="panel-card-title">Masquerade Rules (POSTROUTING) <span>snat</span></div>
+  {% for r in masq_rules %}
+  <div class="fw-rule-row masq-row">
+    <span class="mod-badge yellow">MASQ</span>
+    <span class="fw-rule-detail">
+      {% if r.dest %}<strong>{{ r.dest }}</strong>{% else %}<strong>all</strong>{% endif %}
+      {% if r.iface %}<span class="fw-chain-label">&#x2192; {{ r.iface }}</span>{% endif %}
+    </span>
+    <span class="fw-rule-counter">{{ format_bytes(r.bytes) }} ({{ r.packets }} pkts)</span>
+    {% if r.handle %}
+    <div class="fw-rule-btns">
+      <button class="mod-action-btn ghost" onclick="editMasq('{{ r.handle }}','{{ r.dest or '' }}','{{ r.iface }}')">&#x270E; Edit</button>
+      <form method="post" action="/firewall/remove-masq/{{ r.handle }}" style="margin:0;display:inline"><button type="submit" class="mod-action-btn danger" onclick="return confirm('Remove this masquerade rule?')">&#x2716; Remove</button></form>
+    </div>
+    {% endif %}
+  </div>
+  {% endfor %}
+  {% if not masq_rules %}
+  <div class="mod-empty-state"><div class="icon">&#x1F504;</div><p>No masquerade rules.</p></div>
+  {% endif %}
+</div>
+
+<div class="panel-card" style="margin-top:14px">
+  <div class="panel-card-title">All NAT Rules (Raw) <span>full table</span></div>
+  <div class="fw-raw-section">
+  {% for chain_name in ["prerouting", "postrouting", "input", "output"] %}
+  {% set chain_rules = nat_all.get(chain_name, []) %}
+  {% if chain_rules %}
+  <div class="fw-chain-header">{{ chain_name }}</div>
+  {% for r in chain_rules %}
+  <div class="fw-rule-row {% if r.type == 'dnat' %}dnat-row{% elif r.type == 'masquerade' %}masq-row{% elif r.type == 'snat' %}accept-row{% else %}drop-row{% endif %}" style="font-size:11px">
+    <span class="mod-badge {% if r.type == 'dnat' %}blue{% elif r.type == 'masquerade' %}yellow{% elif r.type == 'snat' %}green{% else %}red{% endif %}">{{ r.type|upper }}</span>
+    <span class="fw-rule-detail"><code>{{ r.raw }}</code></span>
+    {% if r.handle %}
+    <span class="fw-rule-counter" style="min-width:40px">h={{ r.handle }}</span>
+    {% endif %}
+    <span class="fw-rule-counter">{{ format_bytes(r.bytes) }}</span>
+  </div>
+  {% endfor %}
+  {% endif %}
+  {% endfor %}
+  </div>
+</div>
+
+</div>
+
+{# ===================== INPUT TAB ===================== #}
+<div id="tab-input" class="tab-content {% if active_tab=='input' %}active{% endif %}">
+
+<div class="panel-card">
+  <div class="panel-card-title">Add Input Rule <span>new rule</span></div>
+  <form method="post" action="/firewall/add-input" class="fw-add-form">
+    <label>Action</label>
+    <select name="action_input"><option value="accept">Accept</option><option value="drop">Drop</option></select>
+    <label>Protocol</label>
+    <select name="proto"><option value="tcp">TCP</option><option value="udp">UDP</option><option value="icmp">ICMP</option></select>
+    <label>Port</label>
+    <input type="number" name="port" placeholder="8080">
+    <label>Source IP</label>
+    <input type="text" name="saddr" placeholder="(any)">
+    <button type="submit" class="mod-action-btn success">&#x2795; Add</button>
+  </form>
+</div>
+
+<div class="panel-card" style="margin-top:14px">
+  <div class="panel-card-title">Input Chain Rules <span>filter</span></div>
+  {% for r in input_rules %}
+  <div class="fw-rule-row {% if r.policy %}{% if r.policy == 'drop' %}drop-row{% else %}accept-row{% endif %}{% elif r.action == 'accept' %}accept-row{% elif r.action == 'drop' %}drop-row{% elif r.action == 'jump' %}jump-row{% else %}drop-row{% endif %}">
+    {% if r.policy %}
+    <span class="mod-badge {% if r.policy == 'drop' %}red{% else %}green{% endif %}">POLICY: {{ r.policy|upper }}</span>
+    <span class="fw-rule-detail">Default policy</span>
+    {% else %}
+    <span class="mod-badge {% if r.action == 'accept' %}green{% elif r.action == 'drop' %}red{% elif r.action == 'jump' %}blue{% else %}gray{% endif %}">{{ r.action|upper }}</span>
+    <span class="fw-rule-detail"><code>{{ r.raw }}</code></span>
+    {% endif %}
+    <span class="fw-rule-counter">{{ format_bytes(r.bytes) }}</span>
+    {% if r.handle and not r.policy %}
+    <div class="fw-rule-btns">
+      <form method="post" action="/firewall/remove-rule/input/{{ r.handle }}" style="margin:0;display:inline"><input type="hidden" name="tab" value="input"><button type="submit" class="mod-action-btn danger" onclick="return confirm('Remove this rule?')">&#x2716;</button></form>
+    </div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+
+</div>
+
+{# ===================== FORWARD TAB ===================== #}
+<div id="tab-forward" class="tab-content {% if active_tab=='forward' %}active{% endif %}">
+
+<div class="panel-card">
+  <div class="panel-card-title">Add Forward Rule <span>new rule</span></div>
+  <form method="post" action="/firewall/add-forward" class="fw-add-form">
+    <label>Action</label>
+    <select name="action"><option value="accept">Accept</option><option value="drop">Drop</option><option value="reject">Reject</option></select>
+    <label>In Iface</label>
+    <select name="iifname"><option value="">(any)</option>{% for opt in iface_opts %}<option value="{{ opt.value }}">{{ opt.value }}</option>{% endfor %}</select>
+    <label>Out Iface</label>
+    <select name="oifname"><option value="">(any)</option>{% for opt in iface_opts %}<option value="{{ opt.value }}">{{ opt.value }}</option>{% endfor %}</select>
+    <label>Proto</label>
+    <select name="proto"><option value="">(any)</option><option value="tcp">TCP</option><option value="udp">UDP</option><option value="icmp">ICMP</option></select>
+    <label>Src IP</label>
+    <input type="text" name="saddr" placeholder="(any)">
+    <label>Dst IP</label>
+    <input type="text" name="daddr" placeholder="(any)">
+    <label>Dst Port</label>
+    <input type="number" name="dport" placeholder="(any)">
+    <button type="submit" class="mod-action-btn success">&#x2795; Add</button>
+  </form>
+</div>
+
+<div class="panel-card" style="margin-top:14px">
+  <div class="panel-card-title">Forward Chain Rules <span>filter</span></div>
+  {% for r in forward_rules %}
+  <div class="fw-rule-row {% if r.action == 'accept' %}accept-row{% elif r.action == 'drop' %}drop-row{% elif r.action == 'jump' %}jump-row{% else %}drop-row{% endif %}">
+    {% if r.action == 'accept' %}
+    <span class="mod-badge green">ACCEPT</span>
+    {% elif r.action == 'drop' %}
+    <span class="mod-badge red">DROP</span>
+    {% elif r.action == 'jump' %}
+    <span class="mod-badge blue">JUMP</span>
+    {% else %}
+    <span class="mod-badge gray">{{ r.action|upper }}</span>
+    {% endif %}
+    <span class="fw-rule-detail"><code>{{ r.raw }}</code></span>
+    <span class="fw-rule-counter">{{ format_bytes(r.bytes) }}</span>
+    {% if r.handle %}
+    <div class="fw-rule-btns">
+      <form method="post" action="/firewall/remove-rule/forward/{{ r.handle }}" style="margin:0;display:inline"><input type="hidden" name="tab" value="forward"><button type="submit" class="mod-action-btn danger" onclick="return confirm('Remove this forward rule?')">&#x2716;</button></form>
+    </div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+
+{% if wg_rules %}
+<div class="panel-card" style="margin-top:14px">
+  <div class="panel-card-title">WireGuard ACL Rules <span>wg filter</span></div>
+  {% for r in wg_rules %}
+  <div class="fw-rule-row wg-row">
+    <span class="mod-badge purple">{{ r.action|upper }}</span>
+    <span class="fw-rule-detail"><code>{{ r.raw }}</code></span>
+    <span class="fw-rule-counter">{{ format_bytes(r.bytes) }}</span>
+    {% if r.handle %}
+    <div class="fw-rule-btns">
+      <form method="post" action="/firewall/remove-rule/wg_acl/{{ r.handle }}" style="margin:0;display:inline"><input type="hidden" name="tab" value="forward"><button type="submit" class="mod-action-btn danger" onclick="return confirm('Remove this WG ACL rule?')">&#x2716;</button></form>
+    </div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+</div>
+
+{# ===================== EDIT DNAT MODAL ===================== #}
+<div class="mod-modal-overlay" id="modal-edit-dnat" onclick="if(event.target===this)closeModal('modal-edit-dnat')">
+<div class="mod-modal">
+  <h3>&#x270E; Edit Port Forward (DNAT)</h3>
+  <form method="post" id="form-edit-dnat" action="">
+    <input type="hidden" name="handle" id="edit-dnat-handle">
+    <div class="mod-form-row"><label>Protocol</label><select name="proto" id="edit-dnat-proto"><option value="tcp">TCP</option><option value="udp">UDP</option></select></div>
+    <div class="mod-form-row"><label>Ext Port</label><input type="number" name="dport" id="edit-dnat-dport" required></div>
+    <div class="mod-form-row"><label>Target IP</label><input type="text" name="target_ip" id="edit-dnat-target-ip" required></div>
+    <div class="mod-form-row"><label>Int Port</label><input type="number" name="target_port" id="edit-dnat-target-port"></div>
+    <div class="mod-form-row"><label>Interface</label><select name="iface" id="edit-dnat-iface">{% for opt in iface_opts %}<option value="{{ opt.value }}">{{ opt.label }}</option>{% endfor %}</select></div>
+    <div class="mod-form-row"><label>Dest IP</label><input type="text" name="dest_ip" id="edit-dnat-dest-ip" placeholder="(WAN IP default)"></div>
+    <div class="fw-modal-btns">
+      <button type="button" class="mod-action-btn ghost" onclick="closeModal('modal-edit-dnat')">Cancel</button>
+      <button type="submit" class="mod-action-btn success">&#x2713; Save</button>
+    </div>
+  </form>
+</div>
+</div>
+
+{# ===================== EDIT MASQ MODAL ===================== #}
+<div class="mod-modal-overlay" id="modal-edit-masq" onclick="if(event.target===this)closeModal('modal-edit-masq')">
+<div class="mod-modal">
+  <h3>&#x270E; Edit Masquerade Rule</h3>
+  <form method="post" id="form-edit-masq" action="">
+    <input type="hidden" name="handle" id="edit-masq-handle">
+    <div class="mod-form-row"><label>Source Net</label><input type="text" name="source_net" id="edit-masq-source" required></div>
+    <div class="mod-form-row"><label>Out Iface</label><select name="iface" id="edit-masq-iface">{% for opt in iface_opts %}<option value="{{ opt.value }}">{{ opt.label }}</option>{% endfor %}</select></div>
+    <div class="fw-modal-btns">
+      <button type="button" class="mod-action-btn ghost" onclick="closeModal('modal-edit-masq')">Cancel</button>
+      <button type="submit" class="mod-action-btn success">&#x2713; Save</button>
+    </div>
+  </form>
+</div>
+</div>
+
+<script>
+var defaultIface = '{{ iface_opts[0].value if iface_opts else "eth0" }}';
+
+function switchTab(tab) { window.location.href = '/firewall?tab=' + tab; }
+
+function openModal(id) { document.getElementById(id).classList.add('show'); }
+function closeModal(id) { document.getElementById(id).classList.remove('show'); }
+
+function editDnat(handle, proto, dport, targetIp, targetPort, iface, destIp) {
+  document.getElementById('edit-dnat-handle').value = handle;
+  document.getElementById('edit-dnat-proto').value = proto;
+  document.getElementById('edit-dnat-dport').value = dport;
+  document.getElementById('edit-dnat-target-ip').value = targetIp;
+  document.getElementById('edit-dnat-target-port').value = targetPort;
+  document.getElementById('edit-dnat-iface').value = iface || defaultIface;
+  document.getElementById('edit-dnat-dest-ip').value = destIp || '';
+  document.getElementById('form-edit-dnat').action = '/firewall/edit-dnat/' + handle;
+  openModal('modal-edit-dnat');
+}
+
+function editMasq(handle, source, iface) {
+  document.getElementById('edit-masq-handle').value = handle;
+  document.getElementById('edit-masq-source').value = source || '';
+  document.getElementById('edit-masq-iface').value = iface || defaultIface;
+  document.getElementById('form-edit-masq').action = '/firewall/edit-masq/' + handle;
+  openModal('modal-edit-masq');
+}
+</script>
+</div>
+{% endblock %}

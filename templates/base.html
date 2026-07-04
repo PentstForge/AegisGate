@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="{{ theme }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Security Dashboard{% endblock %}</title>
+<link rel="stylesheet" href="/static/style.css">
+{% block head %}{% endblock %}
+</head>
+<body>
+<div class="sidebar-overlay" id="sidebarOverlay" onclick="document.getElementById('sidebar').classList.remove('open');document.getElementById('sidebarOverlay').classList.remove('show')"></div>
+<nav class="sidebar" id="sidebar">
+    <div class="sidebar-logo">
+      <span class="shield-icon">
+        <img src="/static/img/logo.png" alt="AegisGate" width="66" height="66" style="object-fit:contain">
+      </span>
+      <span class="logo-text">
+        <span class="logo-brand">Aegis<span class="logo-brand-accent">Gate</span></span>
+        <span class="logo-sub">Smart Network Security</span>
+      </span>
+    </div>
+  <div class="sidebar-section" onclick="toggleSection(this)"><span class="section-label">Security</span><span class="section-arrow">&#x25BE;</span></div>
+  <div class="sidebar-nav">
+    <a href="/?tab=drops" class="{% if tab=='drops' %}active{% endif %}"><span class="icon">&#x1f4ca;</span> Drops</a>
+    <a href="/?tab=ssh" class="{% if tab=='ssh' %}active{% endif %}"><span class="icon">&#x1f511;</span> SSH Brute</a>
+    <a href="/?tab=blacklist" class="{% if tab=='blacklist' %}active{% endif %}"><span class="icon">&#x1f6ab;</span> Blacklists</a>
+    <a href="/?tab=crowdsec" class="{% if tab=='crowdsec' %}active{% endif %}"><span class="icon">&#x1f441;</span> CrowdSec</a>
+    <a href="/?tab=suricata" class="{% if tab=='suricata' %}active{% endif %}"><span class="icon">&#x1f9ea;</span> Suricata</a>
+    <a href="/firewall" class="{% if tab=='firewall' %}active{% endif %}"><span class="icon">&#x1F525;</span> Firewall</a>
+    <a href="/policy" class="{% if tab=='policy' %}active{% endif %}"><span class="icon">&#x1f6e1;</span> Policy</a>
+    <a href="/rules" class="{% if tab=='rules' %}active{% endif %}"><span class="icon">&#x2699;</span> Rules</a>
+    <a href="/allowlist" class="{% if tab=='allowlist' %}active{% endif %}"><span class="icon">&#x2705;</span> Allowlist</a>
+  </div>
+  <div class="sidebar-section" onclick="toggleSection(this)"><span class="section-label">Analytics</span><span class="section-arrow">&#x25BE;</span></div>
+  <div class="sidebar-nav">
+    <a href="/timeline" class="{% if tab=='timeline' %}active{% endif %}"><span class="icon">&#x1f4c8;</span> Timeline</a>
+    <a href="/risk" class="{% if tab=='risk' %}active{% endif %}"><span class="icon">&#x26a0;</span> Risk Score</a>
+    <a href="/geoip" class="{% if tab=='geoip' %}active{% endif %}"><span class="icon">&#x1f30d;</span> GeoIP</a>
+    <a href="/bandwidth" class="{% if tab=='bandwidth' %}active{% endif %}"><span class="icon">&#x1f4ca;</span> Bandwidth</a>
+  </div>
+  <div class="sidebar-section" onclick="toggleSection(this)"><span class="section-label">Network</span><span class="section-arrow">&#x25BE;</span></div>
+  <div class="sidebar-nav">
+    <a href="/dns" class="{% if tab=='dns' %}active{% endif %}"><span class="icon">&#x1f310;</span> Aegis DNS</a>
+    <a href="/dns-log" class="{% if tab=='dns-log' %}active{% endif %}"><span class="icon">&#x1F4DD;</span> DNS Log</a>
+    <a href="/vpn" class="{% if tab=='vpn' %}active{% endif %}"><span class="icon">&#x1f512;</span> VPN</a>
+    <a href="/qos" class="{% if tab=='qos' %}active{% endif %}"><span class="icon">&#x1f680;</span> QoS</a>
+    <a href="/network" class="{% if tab=='network' %}active{% endif %}"><span class="icon">&#x1f5a7;</span> Interfaces</a>
+  </div>
+  <div class="sidebar-section" onclick="toggleSection(this)"><span class="section-label">System</span><span class="section-arrow">&#x25BE;</span></div>
+  <div class="sidebar-nav">
+    <a href="/health" class="{% if tab=='health' %}active{% endif %}"><span class="icon">&#x2764;</span> Health</a>
+    <a href="/export" class="{% if tab=='export' %}active{% endif %}"><span class="icon">&#x1f4e5;</span> Export</a>
+    <a href="/change-password"><span class="icon">&#x1f510;</span> Change Password</a>
+    <a href="/logout" style="color:var(--danger)"><span class="icon">&#x1f6aa;</span> Logout</a>
+  </div>
+</nav>
+<div class="main">
+  {% block content %}{% endblock %}
+</div>
+<div class="theme-toggle" onclick="toggleTheme()" title="Toggle theme" id="themeBtn">&#x1f319;</div>
+<script>
+(function(){
+  var saved = localStorage.getItem('theme');
+  if(saved) document.documentElement.setAttribute('data-theme', saved);
+  updateThemeIcon();
+  var collapsed = JSON.parse(localStorage.getItem('sidebar_collapsed') || '{}');
+  document.querySelectorAll('.sidebar-section').forEach(function(sec){
+    var label = sec.querySelector('.section-label');
+    if(label && collapsed[label.textContent.trim()]){
+      sec.classList.add('collapsed');
+    }
+  });
+})();
+function updateThemeIcon(){
+  var cur = document.documentElement.getAttribute('data-theme') || 'light';
+  var btn = document.getElementById('themeBtn');
+  if(btn) btn.innerHTML = cur === 'light' ? '&#9728;' : '&#127769;';
+}
+function toggleTheme(){
+  var cur = document.documentElement.getAttribute('data-theme') || 'light';
+  var next = cur === 'light' ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', next);
+  localStorage.setItem('theme', next);
+  document.cookie = 'theme=' + next + ';path=/;max-age=31536000;samesite=lax';
+  updateThemeIcon();
+}
+function toggleSection(el){
+  el.classList.toggle('collapsed');
+  var collapsed = {};
+  document.querySelectorAll('.sidebar-section').forEach(function(sec){
+    var label = sec.querySelector('.section-label');
+    if(label && sec.classList.contains('collapsed')){
+      collapsed[label.textContent.trim()] = true;
+    }
+  });
+  localStorage.setItem('sidebar_collapsed', JSON.stringify(collapsed));
+}
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

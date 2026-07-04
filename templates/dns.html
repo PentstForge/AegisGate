@@ -1,0 +1,1969 @@
+{% extends "base.html" %}
+{% block title %}Aegis DNS — AegisGate{% endblock %}
+{% block page_title %}Aegis DNS{% endblock %}
+{% block head %}
+<script src="/static/chart.min.js"></script>
+<style>
+.dns-panel{display:none}.dns-panel.active{display:block}
+.rule-table{width:100%;border-collapse:collapse;font-size:12px}
+.rule-table th{text-align:left;padding:6px 8px;background:var(--bg-tertiary);color:var(--text-secondary);font-size:10px;text-transform:uppercase;border-bottom:2px solid var(--border)}
+.rule-table td{padding:6px 8px;border-bottom:1px solid var(--border)}
+.rule-table tr:hover{background:var(--bg-tertiary)}
+.badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700}
+.badge-block{background:#ef4444;color:#fff}
+.badge-allow{background:#22c55e;color:#fff}
+.badge-rewrite{background:#3b82f6;color:#fff}
+.badge-important{background:#f59e0b;color:#000}
+.badge-exact{background:var(--bg-tertiary);color:var(--text-secondary)}
+.badge-forwarded{background:#3b82f6;color:#fff}
+.badge-reply{background:#8b5cf6;color:#fff}
+.badge-query{background:var(--bg-tertiary);color:var(--text-secondary)}
+.badge-wildcard{background:#8b5cf6;color:#fff}
+.badge-adblock,.badge-adblock_domain,.badge-hosts,.badge-regex{background:#06b6d4;color:#fff}
+.badge-hosts{background:#ec4899;color:#fff}
+.badge-regex{background:#f97316;color:#fff}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border:none;border-radius:6px;font-weight:600;cursor:pointer;font-size:12px;transition:all .15s}
+.btn-primary{background:var(--accent);color:#fff}.btn-primary:hover{background:var(--accent-hover)}
+.btn-danger{background:var(--danger);color:#fff}.btn-danger:hover{opacity:.9}
+.btn-secondary{background:var(--bg-tertiary);color:var(--text-primary);border:1px solid var(--border)}.btn-secondary:hover{border-color:var(--accent)}
+.btn-sm{padding:4px 10px;font-size:10px}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.form-group{display:flex;flex-direction:column;gap:4px}
+.form-group label{font-size:11px;font-weight:600;color:var(--text-secondary)}
+.form-group input,.form-group select,.form-group textarea{padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-tertiary);color:var(--text-primary);font-size:12px}
+.form-group textarea{min-height:80px;font-family:monospace;font-size:11px}
+.form-group input:focus,.form-group select:focus,.form-group textarea:focus{outline:none;border-color:var(--accent)}
+.top-list{margin:10px 0}
+.top-list h4{font-size:12px;color:var(--accent);margin:8px 0 4px;text-transform:uppercase}
+.top-item{display:flex;justify-content:space-between;padding:4px 8px;font-size:11px;border-bottom:1px solid var(--border)}
+.top-item .domain{color:var(--text-primary);font-weight:500;overflow:hidden;text-overflow:ellipsis;max-width:70%}
+.top-item .cnt{color:var(--text-secondary);font-family:monospace}
+.pi-kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
+.pi-kpi{border-radius:10px;padding:14px 16px;color:#fff;position:relative;overflow:hidden;cursor:default;transition:transform .15s}
+.pi-kpi:hover{transform:translateY(-2px)}
+.pi-kpi .pi-kpi-inner{position:relative;z-index:1}
+.pi-kpi .pi-kpi-title{font-size:11px;font-weight:700;text-transform:uppercase;opacity:.85;letter-spacing:.5px}
+.pi-kpi .pi-kpi-value{font-size:28px;font-weight:800;line-height:1.2;margin:2px 0}
+.pi-kpi .pi-kpi-footer{font-size:10px;opacity:.7}
+.pi-kpi .pi-kpi-icon{position:absolute;right:12px;top:50%;transform:translateY(-50%);font-size:48px;opacity:.15;z-index:0}
+.pi-kpi-aqua{background:linear-gradient(135deg,var(--accent,#00c0ef),var(--accent-hover,#0097c7))}
+.pi-kpi-red{background:linear-gradient(135deg,var(--danger,#dd4b39),#b5301f)}
+.pi-kpi-yellow{background:linear-gradient(135deg,#f39c12,#d4850a)}
+.pi-kpi-green{background:linear-gradient(135deg,var(--success,#00a65a),#007942)}
+[data-theme="dark"] .pi-kpi-aqua{background:linear-gradient(135deg,var(--accent,#007997),#005f7a)}
+[data-theme="dark"] .pi-kpi-red{background:linear-gradient(135deg,#913225,#6e241c)}
+[data-theme="dark"] .pi-kpi-yellow{background:linear-gradient(135deg,#b1720c,#8d5900)}
+[data-theme="dark"] .pi-kpi-green{background:linear-gradient(135deg,var(--success,#005c32),#003d20)}
+.pi-chart-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}
+.pi-top-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}
+.pi-top-card{border:1px solid var(--border);border-radius:10px;background:var(--bg-card);overflow:hidden}
+.pi-top-card-title{font-size:12px;font-weight:700;text-transform:uppercase;color:var(--accent);padding:10px 14px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+.pi-top-list{max-height:280px;overflow-y:auto;padding:0}
+.pi-top-item{display:flex;align-items:center;justify-content:space-between;padding:6px 14px;font-size:12px;border-bottom:1px solid var(--border)}
+.pi-top-item:last-child{border-bottom:none}
+.pi-top-item .pi-top-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:55%;color:var(--text-primary);font-weight:500}
+.pi-top-item .pi-top-bar{flex:1;margin:0 10px;max-width:40%}
+.pi-top-item .pi-top-bar .pi-progress{height:6px;border-radius:3px;background:var(--bg-tertiary);overflow:hidden}
+.pi-top-item .pi-top-bar .pi-progress-fill{height:100%;border-radius:3px;transition:width .3s}
+.pi-bar-green .pi-progress-fill{background:var(--success,#00a65a)}
+.pi-bar-red .pi-progress-fill{background:var(--danger,#dd4b39)}
+[data-theme="dark"] .pi-bar-green .pi-progress-fill{background:var(--success,#12b660)}
+[data-theme="dark"] .pi-bar-red .pi-progress-fill{background:var(--danger,#822d21)}
+.pi-top-item .pi-top-cnt{color:var(--text-secondary);font-family:monospace;font-size:11px;min-width:40px;text-align:right}
+@media(max-width:800px){.pi-kpi-row{grid-template-columns:1fr 1fr}.pi-chart-row,.pi-top-row{grid-template-columns:1fr}}
+.list-item{display:flex;align-items:center;gap:10px;padding:10px;border:1px solid var(--border);border-radius:8px;margin:6px 0;background:var(--bg-card)}
+.list-item .list-info{flex:1;min-width:0}
+.list-item .list-name{font-weight:600;font-size:13px;color:var(--text-primary)}
+.list-item .list-url{font-size:10px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis}
+.list-item .list-stats{font-size:10px;color:var(--text-muted)}
+.pager{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:12px 0;font-size:12px}
+.pager a{padding:6px 10px;border:1px solid var(--border);border-radius:6px;color:var(--text-primary);text-decoration:none;background:var(--bg-tertiary)}
+.pager a.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.filter-bar{display:flex;gap:8px;align-items:end;flex-wrap:wrap;margin:10px 0}
+.filter-bar .form-group{min-width:160px}
+.service-card-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.service-grid{display:flex;flex-wrap:wrap;gap:6px}
+.service-check{display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer}
+.service-card{border:1px solid var(--border);border-radius:12px;padding:12px;background:linear-gradient(180deg,var(--bg-card),var(--bg-tertiary));min-height:100px;cursor:pointer;transition:all .15s}
+.service-card:hover{border-color:var(--accent);box-shadow:0 4px 12px rgba(0,0,0,.1)}
+.service-card.checked{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 30%,transparent)}
+.service-card h4{font-size:13px;margin:0 0 6px;color:var(--text-primary);display:flex;justify-content:space-between;gap:8px}
+.service-card .domains{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
+.chip{display:inline-flex;align-items:center;gap:4px;padding:3px 7px;border-radius:999px;background:var(--bg-card);border:1px solid var(--border);font-size:10px;color:var(--text-secondary)}
+.chip .chip-remove{border:0;background:transparent;color:var(--danger);cursor:pointer;font-weight:700;padding:0 0 0 4px;font-size:12px;line-height:1}
+.service-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+.service-toolbar input{min-width:260px;padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--bg-tertiary);color:var(--text-primary)}
+.group-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:12px}
+.group-card{border:1px solid var(--border);border-radius:12px;background:var(--bg-card);padding:14px}
+.group-card-head{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:10px}
+.member-list{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0;min-height:24px}
+.member-pill{display:inline-flex;align-items:center;gap:6px;padding:4px 7px;border:1px solid var(--border);border-radius:999px;background:var(--bg-tertiary);font-size:10px}
+.member-pill form{display:inline}.member-pill button{border:0;background:transparent;color:var(--danger);cursor:pointer;font-weight:700;padding:0}
+.group-manage{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:10px}
+.group-manage select,.group-manage input{width:100%;padding:7px;border:1px solid var(--border);border-radius:6px;background:var(--bg-tertiary);color:var(--text-primary);font-size:11px}
+.policy-card{border:1px solid var(--border);border-radius:10px;padding:12px;margin:10px 0;background:var(--bg-card)}
+.policy-title{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:0}
+.policy-title strong{color:var(--accent)}
+.collapse-icon{font-size:10px;opacity:0.6;transition:transform 0.2s}
+.policy-body{margin-top:12px}
+.policy-body .form-grid{margin-bottom:4px}
+.mini-note{font-size:11px;color:var(--text-secondary);line-height:1.4}
+.inline-form{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.inline-form input,.inline-form select{padding:5px;border:1px solid var(--border);border-radius:5px;background:var(--bg-tertiary);color:var(--text-primary);font-size:11px}
+.chart-grid{display:grid;grid-template-columns:minmax(0,2fr) minmax(260px,1fr);gap:12px;margin:12px 0}
+.chart-box{height:280px;position:relative}
+.log-controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px}
+.log-controls select,.log-controls input{padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-tertiary);color:var(--text-primary);font-size:12px}
+.log-controls input{min-width:200px}
+.log-stats{display:flex;gap:16px;font-size:12px;color:var(--text-secondary);margin-bottom:8px}
+.log-stats span{display:flex;align-items:center;gap:4px}
+.log-stats .dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+.log-table{width:100%;border-collapse:collapse;font-size:12px}
+.log-table th{text-align:left;padding:8px 10px;background:var(--bg-tertiary);color:var(--text-secondary);font-size:10px;text-transform:uppercase;border-bottom:2px solid var(--border);position:sticky;top:0;z-index:1}
+.log-table td{padding:6px 10px;border-bottom:1px solid var(--border);vertical-align:middle}
+.log-table tr:hover{background:var(--bg-tertiary)}
+.log-table .domain{font-family:monospace;font-size:12px;color:var(--text-primary);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block}
+.log-table .client{font-family:monospace;font-size:11px;color:var(--text-secondary)}
+.log-table .time{font-size:11px;color:var(--text-muted);white-space:nowrap}
+.detail-row td{background:var(--bg-card);padding:12px 16px}
+.detail-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px}
+.detail-item{font-size:11px}
+.detail-item .label{color:var(--text-muted);font-size:10px;text-transform:uppercase}
+.detail-item .value{color:var(--text-primary);font-weight:600}
+.log-pager{display:flex;align-items:center;gap:8px;justify-content:center;margin:8px 0;font-size:12px}
+.log-pager button{padding:6px 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg-tertiary);color:var(--text-primary);cursor:pointer}
+.log-pager button:hover{border-color:var(--accent)}
+.log-pager button:disabled{opacity:.4;cursor:default}
+.log-scroll{max-height:calc(100vh - 320px);overflow-y:auto;border:1px solid var(--border);border-radius:8px;margin-bottom:5px}
+.empty-log{text-align:center;padding:40px;color:var(--text-muted)}
+.empty-log .icon{font-size:48px;margin-bottom:8px}
+@media(max-width:700px){.form-grid{grid-template-columns:1fr}}
+@media(max-width:900px){.chart-grid,.group-manage{grid-template-columns:1fr}.inline-form{align-items:stretch}.inline-form input,.inline-form select,.inline-form button{width:100%}.group-grid,.service-card-grid{grid-template-columns:1fr}}
+</style>
+{% endblock %}
+{% block content %}
+<section class="page-hero">
+  <div class="page-hero-top">
+    <div>
+      <div class="page-kicker">DNS Filtering &amp; Firewall</div>
+      <div class="page-title">Aegis DNS</div>
+      <div class="page-subtitle">DNS firewall with ad-blocking, parental controls, per-client policies, and real-time query analytics.</div>
+    </div>
+    <div class="page-actions">
+      <button class="mod-action-btn primary" onclick="toggleDNS()">{{ '⏹ Stop' if status.enabled else '▶ Start' }} DNS</button>
+      <button class="mod-action-btn ghost" onclick="applyConfig()">Apply Config</button>
+      <span class="page-state-pill {{ 'running' if status.running else 'stopped' }}"><span class="state-dot"></span> {{ 'Running' if status.running else 'Stopped' }}{% if status.uptime %} &middot; {{ status.uptime }}{% endif %}</span>
+    </div>
+  </div>
+  <div class="kpi-grid">
+    <div class="kpi-card accent"><div class="kpi-label">Queries 1h</div><div class="kpi-value">{{ status.queries.last_1h }}</div><div class="kpi-note">Last hour</div></div>
+    <div class="kpi-card danger"><div class="kpi-label">Blocked 1h</div><div class="kpi-value">{{ status.queries.blocked_1h }}</div><div class="kpi-note">Filtered</div></div>
+    <div class="kpi-card"><div class="kpi-label">Rules</div><div class="kpi-value">{{ status.rules.total }}</div><div class="kpi-note">Active filters</div></div>
+    <div class="kpi-card"><div class="kpi-label">Lists</div><div class="kpi-value">{{ status.lists.enabled }}/{{ status.lists.total }}</div><div class="kpi-note">Blocklists</div></div>
+    <div class="kpi-card"><div class="kpi-label">Clients</div><div class="kpi-value">{{ status.clients }}</div><div class="kpi-note">Devices</div></div>
+  </div>
+</section>
+
+<div class="page-toolbar">
+  <div class="page-tabs">
+    <button class="page-tab active" onclick="showTab('dashboard',this)">Dashboard</button>
+    <button class="page-tab" onclick="showTab('queries',this)">Queries</button>
+    <button class="page-tab" onclick="showTab('rules',this)">Rules</button>
+    <button class="page-tab" onclick="showTab('lists',this)">Blocklists</button>
+    <button class="page-tab" onclick="showTab('clients',this)">Clients</button>
+    <button class="page-tab" onclick="showTab('groups',this)">Groups</button>
+    <button class="page-tab" onclick="showTab('policies',this)">Policies</button>
+    <button class="page-tab" onclick="showTab('services',this)">Services</button>
+    <button class="page-tab" onclick="showTab('access',this)">Access</button>
+    <button class="page-tab" onclick="showTab('local',this)">Local DNS</button>
+    <button class="page-tab" onclick="showTab('upstream',this)">Upstream</button>
+    <button class="page-tab" onclick="showTab('settings',this)">Settings</button>
+    <button class="page-tab" onclick="showTab('dhcp',this)">DHCP</button>
+    <button class="page-tab" onclick="showTab('hostnames',this)">Hostnames</button>
+  </div>
+</div>
+
+<!-- ========== DASHBOARD ========== -->
+<div id="tab-dashboard" class="dns-panel active">
+  <div class="pi-kpi-row">
+    <div class="pi-kpi pi-kpi-aqua">
+      <div class="pi-kpi-icon">&#x1F310;</div>
+      <div class="pi-kpi-inner">
+        <div class="pi-kpi-title">Total Queries</div>
+        <div class="pi-kpi-value" id="pi-total-queries">{{ status.queries.last_24h }}</div>
+        <div class="pi-kpi-footer">Last 24h</div>
+      </div>
+    </div>
+    <div class="pi-kpi pi-kpi-red">
+      <div class="pi-kpi-icon">&#x1F6D1;</div>
+      <div class="pi-kpi-inner">
+        <div class="pi-kpi-title">Queries Blocked</div>
+        <div class="pi-kpi-value" id="pi-blocked-queries">{{ status.queries.blocked_24h }}</div>
+        <div class="pi-kpi-footer">Filtered by blocklists</div>
+      </div>
+    </div>
+    <div class="pi-kpi pi-kpi-yellow">
+      <div class="pi-kpi-icon">&#x1F4CA;</div>
+      <div class="pi-kpi-inner">
+        <div class="pi-kpi-title">Percentage Blocked</div>
+        <div class="pi-kpi-value" id="pi-percent-blocked">{% if status.queries.last_24h > 0 %}{{ '%.1f'|format(status.queries.blocked_24h / status.queries.last_24h * 100) }}%{% else %}0%{% endif %}</div>
+        <div class="pi-kpi-footer">Block ratio</div>
+      </div>
+    </div>
+    <div class="pi-kpi pi-kpi-green">
+      <div class="pi-kpi-icon">&#x1F4CB;</div>
+      <div class="pi-kpi-inner">
+        <div class="pi-kpi-title">Domains on Lists</div>
+        <div class="pi-kpi-value" id="pi-domains-lists">{{ status.rules.total }}</div>
+        <div class="pi-kpi-footer">{{ status.lists.enabled }}/{{ status.lists.total }} lists active</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel-card" style="margin-bottom:16px">
+    <div class="panel-card-title">Queries Over Time <span style="font-weight:400;font-size:11px">Permitted vs Blocked</span></div>
+    <div class="chart-box" style="height:220px"><canvas id="dnsHourlyChart"></canvas></div>
+  </div>
+
+  <div class="chart-grid" style="margin-bottom:16px">
+    <div class="panel-card">
+      <div class="panel-card-title">Total Queries Over 24h <span style="font-weight:400;font-size:11px">Hourly trend</span></div>
+      <div class="chart-box" style="height:200px"><canvas id="dnsTotalLineChart"></canvas></div>
+    </div>
+    <div class="panel-card">
+      <div class="panel-card-title">Client Activity Over 24h <span style="font-weight:400;font-size:11px">Top clients</span></div>
+      <div class="chart-box" style="height:200px"><canvas id="dnsClientChart"></canvas></div>
+    </div>
+  </div>
+
+  <div class="pi-chart-row">
+    <div class="panel-card">
+      <div class="panel-card-title">Query Types</div>
+      <div style="display:flex;align-items:center;gap:16px;padding:8px">
+        <div style="flex:1;max-width:220px"><canvas id="dnsTypeChart"></canvas></div>
+        <div id="query-types-legend" style="flex:1;font-size:11px;line-height:1.8"></div>
+      </div>
+    </div>
+    <div class="panel-card">
+      <div class="panel-card-title">Upstream Servers</div>
+      <div style="display:flex;align-items:center;gap:16px;padding:8px">
+        <div style="flex:1;max-width:220px"><canvas id="dnsUpstreamChart"></canvas></div>
+        <div id="upstream-legend" style="flex:1;font-size:11px;line-height:1.8"></div>
+      </div>
+    </div>
+  </div>
+
+   <div style="display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-bottom:6px">
+     <span style="font-size:11px;color:var(--text-muted)">Period:</span>
+     <select id="top-stats-period" style="font-size:11px;padding:2px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg-tertiary);color:var(--text-primary)" onchange="refreshTopStats()">
+       <option value="1m">1 min</option>
+       <option value="5m">5 min</option>
+       <option value="1h" selected>1 hour</option>
+       <option value="24h">24 hours</option>
+     </select>
+     <button class="btn btn-secondary btn-sm" onclick="refreshTopStats()" title="Refresh now" style="font-size:10px">&#x21bb;</button>
+   </div>
+
+   <div class="pi-top-row">
+     <div class="pi-top-card">
+       <div class="pi-top-card-title">Top Permitted Domains <span style="font-weight:400;font-size:10px;color:var(--text-muted)">{{ status.top_domains|length }} entries</span></div>
+       <div class="pi-top-list" id="top-permitted">
+         {% for d in status.top_domains[:10] %}
+         <div class="pi-top-item">
+           <span class="pi-top-name" title="{{ d.domain|e }}">{{ d.domain|e }}</span>
+           <span class="pi-top-bar pi-bar-green"><div class="pi-progress"><div class="pi-progress-fill" style="width:{% if status.queries.last_24h > 0 %}{{ '%.1f'|format(d.cnt / status.queries.last_24h * 100) }}{% else %}0{% endif %}%"></div></div></span>
+           <span class="pi-top-cnt">{{ d.cnt }}</span>
+         </div>
+         {% endfor %}
+         {% if not status.top_domains %}<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px">No data yet</div>{% endif %}
+       </div>
+     </div>
+     <div class="pi-top-card">
+       <div class="pi-top-card-title">Top Blocked Domains <span style="font-weight:400;font-size:10px;color:var(--text-muted)">{{ status.top_blocked|length }} entries</span></div>
+       <div class="pi-top-list" id="top-blocked">
+         {% for d in status.top_blocked[:10] %}
+         <div class="pi-top-item">
+           <span class="pi-top-name" title="{{ d.domain|e }}">{{ d.domain|e }}</span>
+           <span class="pi-top-bar pi-bar-red"><div class="pi-progress"><div class="pi-progress-fill" style="width:{% if status.queries.blocked_24h > 0 %}{{ '%.1f'|format(d.cnt / status.queries.blocked_24h * 100) }}{% else %}0{% endif %}%"></div></div></span>
+           <span class="pi-top-cnt">{{ d.cnt }}</span>
+         </div>
+         {% endfor %}
+         {% if not status.top_blocked %}<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px">No blocked domains yet</div>{% endif %}
+       </div>
+     </div>
+   </div>
+
+   <div class="pi-top-row">
+     <div class="pi-top-card">
+       <div class="pi-top-card-title">Top Clients (Total) <span style="font-weight:400;font-size:10px;color:var(--text-muted)">{{ status.top_clients|length }} clients</span></div>
+       <div class="pi-top-list" id="top-clients-total">
+         {% for c in status.top_clients[:10] %}
+         <div class="pi-top-item">
+           <span class="pi-top-name" title="{{ c.client_ip|e }}">{{ c.hostname|default(c.client_ip, true)|e }}</span>
+           <span class="pi-top-bar pi-bar-green"><div class="pi-progress"><div class="pi-progress-fill" style="width:{% if status.queries.last_24h > 0 %}{{ '%.1f'|format(c.cnt / status.queries.last_24h * 100) }}{% else %}0{% endif %}%"></div></div></span>
+           <span class="pi-top-cnt">{{ c.cnt }}</span>
+         </div>
+         {% endfor %}
+         {% if not status.top_clients %}<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px">No data yet</div>{% endif %}
+       </div>
+     </div>
+     <div class="pi-top-card">
+       <div class="panel-card-title">Top Clients (Blocked Only)</div>
+       <div class="pi-top-list" id="top-clients-blocked">
+         {% for c in status.top_blocked_clients[:10] if status.top_blocked_clients is defined %}
+         <div class="pi-top-item">
+           <span class="pi-top-name" title="{{ c.client_ip|e }}">{{ c.hostname|default(c.client_ip, true)|e }}</span>
+           <span class="pi-top-bar pi-bar-red"><div class="pi-progress"><div class="pi-progress-fill" style="width:{% if status.queries.blocked_24h > 0 %}{{ '%.1f'|format(c.cnt / status.queries.blocked_24h * 100) }}{% else %}0{% endif %}%"></div></div></span>
+           <span class="pi-top-cnt">{{ c.cnt }}</span>
+         </div>
+         {% endfor %}
+       </div>
+     </div>
+   </div>
+</div>
+
+<!-- ========== RULES ========== -->
+<div id="tab-rules" class="dns-panel">
+  <div class="panel-card">
+    <div class="panel-card-title">Add Rule
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-secondary btn-sm" onclick="showAddRule()">+ Add Rule</button>
+        <button class="btn btn-secondary btn-sm" onclick="showImportRule()">Import</button>
+      </div>
+    </div>
+    <div id="add-rule-form" style="display:none;margin-top:10px">
+      <form method="POST" action="/dns/add-rule" class="form-grid">
+        <div class="form-group"><label>Type</label><select name="type"><option value="exact">Exact</option><option value="wildcard">Wildcard</option><option value="adblock_domain">Adblock Domain</option><option value="regex">Regex</option></select></div>
+        <div class="form-group"><label>Action</label><select name="action"><option value="block">Block</option><option value="allow">Allow</option><option value="rewrite">Rewrite</option></select></div>
+        <div class="form-group"><label>Domain</label><input type="text" name="value" placeholder="ads.example.com" required></div>
+        <div class="form-group"><label>Category</label><input type="text" name="category" placeholder="ads, tracker..."></div>
+        <div class="form-group"><label>Comment</label><input type="text" name="comment" placeholder="Optional comment"></div>
+        <div class="form-group"><label>Priority</label><input type="number" name="priority" value="100" min="1" max="9999"></div>
+        <div style="grid-column:1/-1;display:flex;gap:8px;margin-top:4px"><button type="submit" class="btn btn-primary">Add Rule</button><button type="button" class="btn btn-secondary" onclick="document.getElementById('add-rule-form').style.display='none'">Cancel</button></div>
+      </form>
+    </div>
+    <div id="import-rules-form" style="display:none;margin-top:10px">
+      <form method="POST" action="/dns/import-rules" class="form-grid">
+        <div class="form-group" style="grid-column:1/-1"><label>Paste rules (adblock, hosts, domains — one per line)</label><textarea name="rules_text" rows="8" placeholder="||ads.example.com^&#10;0.0.0.0 tracker.example.net&#10;example.com"></textarea></div>
+        <div class="form-group"><label>Category</label><input type="text" name="category" placeholder="ads"></div>
+        <div style="grid-column:1/-1;display:flex;gap:8px;margin-top:4px"><button type="submit" class="btn btn-primary">Import</button><button type="button" class="btn btn-secondary" onclick="document.getElementById('import-rules-form').style.display='none'">Cancel</button></div>
+      </form>
+    </div>
+  </div>
+  <div class="panel-card">
+    <div class="panel-card-title">Rules (showing {{ rules|length }} of {{ rule_total }})</div>
+    <form method="GET" action="/dns" class="filter-bar">
+      <input type="hidden" name="rule_page" value="1">
+      <div class="form-group"><label>Search by domain/name</label><input type="text" name="rule_search" value="{{ rule_search|e }}" placeholder="google, ads, hagezi..."></div>
+      <div class="form-group"><label>Show</label><select name="rule_limit">
+        {% for n in [50,100,250,500,1000] %}<option value="{{ n }}" {{ 'selected' if rule_limit == n }}>{{ n }} per page</option>{% endfor %}
+      </select></div>
+      <button type="submit" class="btn btn-primary">Search</button>
+      <a class="btn btn-secondary" href="/dns">Reset</a>
+    </form>
+    <div class="pager">
+      {% if rule_page > 1 %}<a href="/dns?rule_search={{ rule_search|urlencode }}&rule_limit={{ rule_limit }}&rule_page={{ rule_page - 1 }}">Prev</a>{% endif %}
+      <span>Page {{ rule_page }} / {{ rule_pages }}</span>
+      {% if rule_page < rule_pages %}<a href="/dns?rule_search={{ rule_search|urlencode }}&rule_limit={{ rule_limit }}&rule_page={{ rule_page + 1 }}">Next</a>{% endif %}
+      {% for pnum in range(1, rule_pages + 1) %}
+        {% if pnum == 1 or pnum == rule_pages or (pnum >= rule_page - 2 and pnum <= rule_page + 2) %}
+          <a class="{{ 'active' if pnum == rule_page }}" href="/dns?rule_search={{ rule_search|urlencode }}&rule_limit={{ rule_limit }}&rule_page={{ pnum }}">{{ pnum }}</a>
+        {% elif pnum == rule_page - 3 or pnum == rule_page + 3 %}
+          <span>...</span>
+        {% endif %}
+      {% endfor %}
+    </div>
+    {% if rules %}
+    <table class="rule-table">
+      <tr><th>Domain</th><th>Type</th><th>Action</th><th>Category</th><th>Source</th><th>Enabled</th><th></th></tr>
+      {% for r in rules %}
+      <tr>
+        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis" title="{{ r.value|e }}">{{ r.value|e }}</td>
+        <td><span class="badge badge-{{ r.type }}">{{ r.type|e }}</span></td>
+        <td><span class="badge badge-{{ r.action }}">{{ r.action|e }}</span></td>
+        <td style="font-size:10px">{{ (r.category or '')|e }}</td>
+        <td style="font-size:10px">{{ (r.source or 'manual')|e }}</td>
+        <td>
+          <button type="button" class="btn btn-sm {{ 'btn-primary' if r.enabled else 'btn-secondary' }}" onclick="toggleRule({{ r.id }},this)">{{ 'ON' if r.enabled else 'OFF' }}</button>
+        </td>
+        <td>
+          <button type="button" class="btn btn-danger btn-sm" onclick="deleteRule({{ r.id }},this)">&#10005;</button>
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}
+    <div class="mod-empty-state"><div class="icon">&#x1f6e1;</div><h3>No rules yet</h3><p>Add a rule or import a blocklist to start filtering.</p></div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ========== BLOCKLISTS ========== -->
+<div id="tab-lists" class="dns-panel">
+  <div class="panel-card">
+    <div class="panel-card-title">Blocklist Subscriptions
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-secondary btn-sm" onclick="showAddList()">+ Add List</button>
+        <form method="POST" action="/dns/install-hagezi-max" style="display:inline"><button type="submit" class="btn btn-secondary btn-sm">Install HaGeZi Max</button></form>
+        <form method="POST" action="/dns/update-all-lists" style="display:inline"><button type="submit" class="btn btn-primary btn-sm">Update All</button></form>
+      </div>
+    </div>
+    <div class="mini-note" style="margin-bottom:10px">HaGeZi Max seeds Ultimate, TIF, DoH bypass and native telemetry lists from the official GitHub repository. Daily auto-update at 04:17.</div>
+    <div class="service-grid" style="margin-bottom:10px">
+      {% for preset in hagezi_presets %}
+      <div class="service-check"><strong>{{ preset.name|e }}</strong><span style="margin-left:auto;color:var(--text-muted);font-size:10px">{{ preset.fmt|e }}</span></div>
+      {% endfor %}
+    </div>
+     <div id="add-list-form" style="display:none;margin-top:10px">
+       <form method="POST" action="/dns/add-list" class="form-grid" onsubmit="event.preventDefault();ajaxForm(event,this,function(r){showToast(r.message||'List added');document.getElementById('add-list-form').style.display='none';reloadTab('lists')})">
+         <div class="form-group"><label>Name</label><input type="text" name="name" placeholder="Steven Black's Unified" required></div>
+         <div class="form-group"><label>URL</label><input type="text" name="url" placeholder="https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"></div>
+         <div class="form-group"><label>Format</label><select name="format"><option value="hosts">Hosts</option><option value="adblock">Adblock</option><option value="domains">Domains</option></select></div>
+         <div class="form-group"><label>Category</label><input type="text" name="category" placeholder="ads, tracking..."></div>
+         <div style="grid-column:1/-1;display:flex;gap:8px;margin-top:4px"><button type="submit" class="btn btn-primary">Add</button><button type="button" class="btn btn-secondary" onclick="document.getElementById('add-list-form').style.display='none'">Cancel</button></div>
+       </form>
+     </div>
+    {% if lists %}
+    {% for lst in lists %}
+    <div class="list-item">
+      <div class="list-info">
+        <div class="list-name">{{ lst.name|e }}</div>
+        <div class="list-url">{{ (lst.url or 'Manual')|e }}</div>
+        <div class="list-stats">{{ lst.format|e }} | {{ lst.rule_count }} rules | {{ lst.category or 'general' }}{% if lst.last_updated %} | Updated: {{ lst.last_updated }}{% endif %}{% if lst.last_error %} | Error: {{ lst.last_error|e }}{% endif %}</div>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <button type="button" class="btn btn-sm {{ 'btn-primary' if lst.enabled else 'btn-secondary' }}" onclick="toggleList({{ lst.id }},this)">{{ 'ON' if lst.enabled else 'OFF' }}</button>
+        {% if lst.url %}<form method="POST" action="/dns/update-list/{{ lst.id }}" style="display:inline"><button type="submit" class="btn btn-secondary btn-sm">Update</button></form>{% endif %}
+        <button type="button" class="btn btn-danger btn-sm" onclick="deleteList({{ lst.id }},this)">&#10005;</button>
+      </div>
+    </div>
+    {% endfor %}
+    {% else %}
+    <div class="mod-empty-state"><div class="icon">&#x1f4cb;</div><h3>No blocklists</h3><p>Add a blocklist subscription to download filtering rules.</p></div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ========== QUERIES ========== -->
+<div id="tab-queries" class="dns-panel">
+  <div class="log-controls">
+    <input type="search" id="filterDomain" placeholder="Filter domain..." oninput="debounceLoad()">
+    <input type="search" id="filterClient" placeholder="Filter client IP..." oninput="debounceLoad()">
+    <select id="filterAction" onchange="loadQueries()">
+      <option value="">All Actions</option>
+      <option value="allow">Allowed</option>
+      <option value="block">Blocked</option>
+      <option value="forwarded">Forwarded</option>
+      <option value="reply">Reply</option>
+      <option value="query">Query</option>
+    </select>
+    <select id="filterQtype" onchange="loadQueries()">
+      <option value="">All Types</option>
+      <option value="A">A</option>
+      <option value="AAAA">AAAA</option>
+      <option value="CNAME">CNAME</option>
+      <option value="MX">MX</option>
+      <option value="TXT">TXT</option>
+      <option value="SRV">SRV</option>
+      <option value="PTR">PTR</option>
+      <option value="HTTPS">HTTPS</option>
+    </select>
+    <select id="filterLimit" onchange="loadQueries()">
+      <option value="50">50 rows</option>
+      <option value="100" selected>100 rows</option>
+      <option value="250">250 rows</option>
+      <option value="500">500 rows</option>
+    </select>
+    <button class="btn btn-primary btn-sm" onclick="loadQueries()">Refresh</button>
+    <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-secondary);cursor:pointer"><input type="checkbox" id="autoRefreshQ" onchange="startAutoRefreshQ()" checked> Auto</label>
+    <button class="btn btn-secondary btn-sm" onclick="importLogQ()">Import Log</button>
+  </div>
+  <div id="log-stats-q" class="log-stats" style="margin-bottom:8px"></div>
+  <div class="log-scroll">
+    <table class="log-table">
+      <thead>
+        <tr>
+          <th style="width:130px">Time</th>
+          <th>Domain</th>
+          <th style="width:120px">Client</th>
+          <th style="width:50px">Type</th>
+          <th style="width:80px">Action</th>
+          <th style="width:120px">Reason / Rule</th>
+          <th style="width:80px">Response</th>
+        </tr>
+      </thead>
+      <tbody id="log-body-q">
+        <tr><td colspan="7" class="empty-log"><div class="icon">&#x1f50d;</div><div>Loading queries...</div></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="log-pager" id="log-pager-q">
+    <button id="prevBtnQ" onclick="prevPageQ()" disabled>&larr; Prev</button>
+    <span id="pageInfoQ">Page 1</span>
+    <button id="nextBtnQ" onclick="nextPageQ()">Next &rarr;</button>
+  </div>
+</div>
+
+<!-- ========== CLIENTS ========== -->
+<div id="tab-clients" class="dns-panel">
+  <div class="panel-card">
+    <div class="panel-card-title">DNS Clients ({{ clients|length }})
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-secondary btn-sm" onclick="ajaxPost('/dns/discover-clients',{},function(r){showToast(r.message||'Done');reloadTab('clients')})">Discover from ARP</button>
+        <button class="btn btn-secondary btn-sm" onclick="document.getElementById('add-client-form').style.display=document.getElementById('add-client-form').style.display==='none'?'':'none'">+ Add Client</button>
+      </div>
+    </div>
+    <div id="add-client-form" style="display:none;margin-top:10px">
+      <form method="POST" action="/dns/add-client" class="form-grid" onsubmit="event.preventDefault();ajaxForm(event,this,function(r){showToast(r.message||'Added');document.getElementById('add-client-form').style.display='none';reloadTab('clients')})">
+        <div class="form-group"><label>Name</label><input type="text" name="name" placeholder="My Phone"></div>
+        <div class="form-group"><label>IP Address</label><input type="text" name="ip" placeholder="192.168.1.10"></div>
+        <div class="form-group"><label>MAC Address</label><input type="text" name="mac" placeholder="AA:BB:CC:DD:EE:FF"></div>
+        <div class="form-group"><label>Policy</label>
+          <select name="policy_id">
+            <option value="">Global</option>
+            {% for p in policies %}<option value="{{ p.id }}">{{ p.name|e }}</option>{% endfor %}
+          </select>
+        </div>
+        <div style="grid-column:1/-1;display:flex;gap:8px;margin-top:4px"><button type="submit" class="btn btn-primary">Add Client</button><button type="button" class="btn btn-secondary" onclick="document.getElementById('add-client-form').style.display='none'">Cancel</button></div>
+      </form>
+    </div>
+    {% if clients %}
+    <table class="rule-table" style="margin-top:10px">
+      <tr><th>IP</th><th>MAC</th><th>Name</th><th>Track Hostname</th><th>Firewall</th><th>Policy</th><th>Blocked Services</th><th>Client DNS</th><th>DHCP Bind</th><th>Stats (24h)</th><th></th></tr>
+      {% for c in clients %}
+      <tr id="client-row-{{ c.id }}">
+        <td style="font-family:monospace;font-size:11px">{{ c.ip|e }}</td>
+        <td style="font-family:monospace;font-size:10px">{{ c.mac|e }}</td>
+        <td><input type="text" class="client-field" data-cid="{{ c.id }}" data-field="name" value="{{ (c.name or '')|e }}" placeholder="Device name" style="width:120px;font-size:11px"></td>
+        <td style="text-align:center">
+          <label style="cursor:pointer;display:flex;align-items:center;justify-content:center;gap:4px" title="Resolve hostname to IP and apply DNS/Firewall rules">
+            <input type="checkbox" {{ 'checked' if c.track_hostname }} onchange="toggleHostnameTrack({{ c.id }},this.checked)" style="width:16px;height:16px;accent-color:var(--accent)">
+          </label>
+        </td>
+        <td>
+          <select class="client-fw-action" data-cid="{{ c.id }}" style="width:80px;font-size:10px;padding:2px" {{ 'disabled' if not c.track_hostname }}>
+            <option value="" {{ 'selected' if not c.firewall_action }}>Off</option>
+            <option value="block" {{ 'selected' if c.firewall_action == 'block' }}>Block</option>
+            <option value="allow" {{ 'selected' if c.firewall_action == 'allow' }}>Allow</option>
+          </select>
+        </td>
+        <td>
+          <select class="client-field" data-cid="{{ c.id }}" data-field="policy_id" style="width:110px;font-size:11px">
+            <option value="">Global</option>
+            {% for p in policies %}<option value="{{ p.id }}" {{ 'selected' if c.policy_id == p.id }}>{{ p.name|e }}</option>{% endfor %}
+          </select>
+        </td>
+        <td>
+          <div class="svc-chips-{{ c.id }}" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:4px">
+            {% for svc in (c.blocked_services_json or '')|parse_json_list %}
+            <span class="chip">{{ svc|e }}<button type="button" class="chip-remove" onclick="removeClientSvcChip({{ c.id }},{{ svc|tojson }})" title="Remove">&times;</button></span>
+            {% endfor %}
+          </div>
+          <select onchange="addClientSvcChip({{ c.id }},this.value);this.selectedIndex=0" style="width:100%;padding:3px;border:1px solid var(--border);border-radius:4px;background:var(--bg-tertiary);color:var(--text-primary);font-size:10px">
+            <option value="">+ Service...</option>
+            {% for svc in blocked_services %}<option value="{{ svc|e }}">{{ svc|replace('_',' ')|title|e }}</option>{% endfor %}
+          </select>
+        </td>
+        <td>
+          <input type="text" class="client-field" data-cid="{{ c.id }}" data-field="upstreams" value="{{ (c.upstreams_json or '')|replace('[','')|replace(']','')|replace('&quot;','')|replace('"','')|replace(' ','')|e }}" placeholder="1.1.1.1,9.9.9.9" style="width:130px;font-size:11px">
+        </td>
+        <td style="text-align:center">
+          {% if c.mac %}
+          <label style="cursor:pointer;display:flex;align-items:center;justify-content:center;gap:4px" title="Bind IP to MAC in DHCP (static lease)">
+            <input type="checkbox" {{ 'checked' if c.dhcp_bound }} onchange="toggleDhcpBind({{ c.id }},this.checked)" style="width:16px;height:16px;accent-color:var(--accent)">
+          </label>
+          {% else %}
+          <span style="font-size:10px;color:var(--text-muted)">no MAC</span>
+          {% endif %}
+        </td>
+        <td style="font-size:10px;white-space:nowrap">
+          <span title="Total queries / Blocked / Risk" style="cursor:help">Q:<strong>{{ c.total_queries or 0 }}</strong> B:<strong>{{ c.blocked_queries or 0 }}</strong> R:<strong>{{ "%.0f"|format((c.risk_score or 0) * 100) }}</strong>%</span>
+        </td>
+        <td style="white-space:nowrap">
+          <button class="btn btn-primary btn-sm" onclick="saveClient({{ c.id }})">Save</button>
+          <button class="btn btn-danger btn-sm" onclick="if(confirm('Delete this client?'))ajaxPost('/dns/delete-client/{{ c.id }}',{},function(r){showToast(r.message||'Deleted');reloadTab('clients');reloadTab('dhcp')})">X</button>
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}
+    <div class="mod-empty-state"><div class="icon">&#x1f4f1;</div><h3>No clients yet</h3><p>Click "Discover from ARP" to find devices on your network.</p></div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ========== POLICIES ========== -->
+<div id="tab-policies" class="dns-panel">
+  <div class="panel-card">
+    <div class="panel-card-title">DNS Policies <span>Create profiles, assign them to clients, and manage service/schedule metadata.</span></div>
+    <form id="form-add-policy" class="form-grid" style="margin-bottom:12px">
+      <div class="form-group"><label>New Profile Name</label><input type="text" name="name" placeholder="Work Laptop" required></div>
+      <div class="form-group"><label>Description</label><input type="text" name="description" placeholder="Custom DNS policy"></div>
+      <div style="grid-column:1/-1"><button type="submit" class="btn btn-primary btn-sm">Create Profile</button></div>
+    </form>
+    {% for p in policies %}
+    <div class="policy-card" id="policy-{{ p.id }}">
+      <div class="policy-title" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center" onclick="togglePolicyCard({{ p.id }})">
+        <div><strong>{{ p.name|e }}</strong><span class="badge badge-{{ 'allow' if p.default_action == 'allow' else 'block' }}">{{ p.default_action|e }}</span></div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <button type="button" class="btn btn-sm {{ 'btn-primary' if p.enabled else 'btn-secondary' }}" onclick="event.stopPropagation();togglePolicy({{ p.id }},this)">{{ 'ON' if p.enabled else 'OFF' }}</button>
+          <button type="button" class="btn btn-danger btn-sm" onclick="event.stopPropagation();deletePolicy({{ p.id }},this)">&#10005;</button>
+          <span class="collapse-icon" id="collapse-icon-{{ p.id }}">&#9660;</span>
+        </div>
+      </div>
+      <div class="policy-body" id="policy-body-{{ p.id }}" style="display:none">
+      <form class="policy-update-form form-grid" data-policy-id="{{ p.id }}">
+        <div class="form-group"><label>Name</label><input type="text" name="name" value="{{ p.name|e }}"></div>
+        <div class="form-group"><label>Description</label><input type="text" name="description" value="{{ (p.description or '')|e }}"></div>
+        <div class="form-group"><label>Blocked Categories</label><input type="text" name="block_categories" value="{{ (p.block_categories or '')|e }}" placeholder="ads,trackers,malware"></div>
+        <div class="form-group" style="grid-column:1/-1"><label>Blocked Services</label>
+          <div class="svc-chips" data-field="blocked_services" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px">
+            {% for svc in (p.blocked_services_json or '')|parse_json_list %}
+            <span class="chip">{{ svc|e }}<button type="button" class="chip-remove" onclick="removeChip(this)" title="Remove">&times;</button><input type="hidden" name="blocked_services" value="{{ svc|e }}"></span>
+            {% endfor %}
+          </div>
+          <div style="display:flex;gap:6px">
+            <select id="svc-add-{{ p.id }}" style="flex:1;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-tertiary);color:var(--text-primary);font-size:12px">
+              {% for svc in blocked_services %}<option value="{{ svc|e }}">{{ svc|replace('_',' ')|title|e }}</option>{% endfor %}
+            </select>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="addServiceChip(this,{{ p.id }})">Add</button>
+          </div>
+        </div>
+        <div class="form-group"><label>Per-Policy Upstreams</label><input type="text" name="upstreams" value="{{ (p.upstreams_json or '')|replace('[','')|replace(']','')|replace('&quot;','')|replace('"','')|replace(' ','')|e }}" placeholder="1.1.1.1,9.9.9.9"></div>
+        <div class="form-group"><label>Blocking Mode</label><select name="blocking_mode"><option value="null_ip" {{ 'selected' if p.blocking_mode == 'null_ip' }}>Null IP</option><option value="nxdomain" {{ 'selected' if p.blocking_mode == 'nxdomain' }}>NXDOMAIN</option><option value="refused" {{ 'selected' if p.blocking_mode == 'refused' }}>REFUSED</option></select></div>
+        <div class="form-group"><label>Default Action</label><select name="default_action"><option value="allow" {{ 'selected' if p.default_action == 'allow' }}>Allow</option><option value="block" {{ 'selected' if p.default_action == 'block' }}>Block</option></select></div>
+        <div class="form-group"><label>Rate Limit QPS</label><input type="number" name="rate_limit_qps" value="{{ p.rate_limit_qps or '' }}" min="0"></div>
+        <div class="form-group"><label>DoH Bypass</label><select name="block_doh_bypass"><option value="1" {{ 'selected' if p.block_doh_bypass }}>Block</option><option value="0" {{ 'selected' if not p.block_doh_bypass }}>Allow</option></select></div>
+        <div class="form-group"><label>External DNS</label><select name="block_external_dns"><option value="1" {{ 'selected' if p.block_external_dns }}>Block</option><option value="0" {{ 'selected' if not p.block_external_dns }}>Allow</option></select></div>
+        <div class="form-group"><label>Enabled</label><select name="enabled"><option value="1" {{ 'selected' if p.enabled }}>Enabled</option><option value="0" {{ 'selected' if not p.enabled }}>Disabled</option></select></div>
+        <div class="form-group"><label>Schedule Enabled</label><select name="schedule_enabled"><option value="0">No</option><option value="1" {{ 'selected' if p.schedule_parsed.get('enabled') }}>Yes</option></select></div>
+        <div class="form-group"><label>Offline Start</label><input type="time" name="offline_start" value="{{ p.schedule_parsed.get('offline_start', '22:00') }}"></div>
+        <div class="form-group"><label>Offline End</label><input type="time" name="offline_end" value="{{ p.schedule_parsed.get('offline_end', '07:00') }}"></div>
+        <input type="hidden" name="timezone" value="Europe/Kiev">
+        <div style="grid-column:1/-1;display:flex;gap:8px"><button type="submit" class="btn btn-primary btn-sm">Save Policy</button></div>
+      </form>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  <div class="panel-card">
+    <div class="panel-card-title">Family Schedule <span>Enforced every minute by nft for clients assigned to the Family policy.</span></div>
+    <form id="form-family-schedule" class="form-grid">
+      <div class="form-group"><label>Enabled</label><select name="enabled"><option value="1" {{ 'selected' if family_schedule.get('enabled') }}>Enabled</option><option value="0" {{ 'selected' if not family_schedule.get('enabled') }}>Disabled</option></select></div>
+      <div class="form-group"><label>Timezone</label><input type="text" name="timezone" value="{{ family_schedule.get('timezone', 'Europe/Kiev')|e }}"></div>
+      <div class="form-group"><label>Offline Start</label><input type="time" name="offline_start" value="{{ family_schedule.get('offline_start', '22:00')|e }}"></div>
+      <div class="form-group"><label>Offline End</label><input type="time" name="offline_end" value="{{ family_schedule.get('offline_end', '07:00')|e }}"></div>
+      <div class="form-group" style="grid-column:1/-1"><label>Days</label><div class="service-grid">
+        {% for d in ['mon','tue','wed','thu','fri','sat','sun'] %}<label class="service-check"><input type="checkbox" name="offline_days" value="{{ d }}" {{ 'checked' if d in family_schedule.get('offline_days', []) }}> {{ d|upper }}</label>{% endfor %}
+      </div></div>
+      <div style="grid-column:1/-1"><button type="submit" class="btn btn-primary btn-sm">Save Family Schedule</button></div>
+    </form>
+  </div>
+</div>
+
+<!-- ========== SERVICES ========== -->
+<div id="tab-services" class="dns-panel">
+  <div class="panel-card">
+    <div class="panel-card-title">Blocked Services <span>ON = globally blocked for all clients. OFF = available for per-policy/client assignment only.</span>
+      <button class="btn btn-secondary btn-sm" onclick="document.getElementById('add-service-form').style.display=document.getElementById('add-service-form').style.display==='none'?'':'none'">+ Add Service</button>
+    </div>
+    <div id="add-service-form" style="display:none;margin-bottom:12px">
+      <form id="form-add-service" class="form-grid">
+        <div class="form-group"><label>Service Name</label><input type="text" name="name" placeholder="my_service" required></div>
+        <div class="form-group" style="grid-column:1/-1"><label>Domains (comma separated)</label><input type="text" name="domains" placeholder="example.com, www.example.com, api.example.com"></div>
+        <div style="grid-column:1/-1;display:flex;gap:8px"><button type="submit" class="btn btn-primary btn-sm">Create Service</button><button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('add-service-form').style.display='none'">Cancel</button></div>
+      </form>
+    </div>
+    <div class="service-toolbar">
+      <input id="serviceSearch" type="search" placeholder="Search services: youtube, ai, vpn..." oninput="filterServiceCards()">
+    </div>
+    <div class="service-card-grid">
+    {% for svc, domains in blocked_services.items() if svc not in custom_service_names %}
+      <div class="service-card service-card-filter" data-name="{{ svc|replace('_',' ')|lower|e }} {{ ' '.join(domains)|lower|e }}" id="svc-built-in-{{ svc|e }}">
+        <h4 style="display:flex;justify-content:space-between;align-items:center"><span>{{ svc|replace('_',' ')|title|e }}</span>
+          <div style="display:flex;gap:6px;align-items:center">
+            <button type="button" class="btn btn-sm {{ 'btn-primary' if svc in global_blocked_services else 'btn-secondary' }}" onclick="toggleGlobalService('{{ svc|e }}',this)">{{ 'ON' if svc in global_blocked_services else 'OFF' }}</button>
+            <span class="chip">{{ domains|length }} domains</span>
+          </div>
+        </h4>
+        <div class="domains" style="max-height:60px;overflow-y:auto">
+          {% for d in domains[:5] %}<span class="chip">{{ d|e }}</span>{% endfor %}
+          {% if domains|length > 5 %}<span class="chip" title="{{ domains[5:]|join(', ') }}">+{{ domains|length - 5 }} more</span>{% endif %}
+        </div>
+      </div>
+    {% endfor %}
+    {% for cs in custom_services %}
+      {% set cs_domains = cs.domains_json|parse_json_list %}
+      <div class="service-card service-card-filter" data-name="{{ cs.name|replace('_',' ')|lower|e }} {{ ' '.join(cs_domains)|lower|e }}" id="svc-custom-{{ cs.id }}" style="border-color:var(--accent)">
+        <h4 style="display:flex;justify-content:space-between;align-items:center"><span>{{ cs.name|replace('_',' ')|title|e }} <span class="mini-note">(custom)</span></span>
+          <div style="display:flex;gap:6px;align-items:center">
+            <button type="button" class="btn btn-sm {{ 'btn-primary' if cs.name in global_blocked_services else 'btn-secondary' }}" onclick="toggleGlobalService('{{ cs.name|e }}',this)">{{ 'ON' if cs.name in global_blocked_services else 'OFF' }}</button>
+            <button type="button" class="btn btn-danger btn-sm" onclick="deleteCustomService({{ cs.id }},this)">&#10005;</button>
+          </div>
+        </h4>
+        <div class="domains" id="svc-domains-{{ cs.id }}" style="max-height:80px;overflow-y:auto">
+          {% for d in cs_domains %}<span class="chip">{{ d|e }}<button type="button" class="chip-remove" onclick="removeServiceDomain({{ cs.id }},{{ d|tojson }},this)" title="Remove">&times;</button></span>{% endfor %}
+          {% if not cs_domains %}<span class="mini-note">No domains</span>{% endif %}
+        </div>
+        <form class="svc-add-domain-form" data-svc-id="{{ cs.id }}" style="display:flex;gap:4px;margin-top:4px">
+          <input type="text" name="domain" placeholder="Add domain..." style="flex:1;padding:4px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg-tertiary);color:var(--text-primary)">
+          <button type="submit" class="btn btn-secondary btn-sm" style="font-size:11px">Add</button>
+        </form>
+      </div>
+    {% endfor %}
+    </div>
+  </div>
+  <div class="panel-card">
+    <div class="panel-card-title">Safe Search Engines <span>DNS rewrites used by policies.</span></div>
+    {% for engine, domains in safe_search.items() %}
+    <div class="service-card" style="margin-bottom:8px;min-height:0">
+      <h4><span>{{ engine|capitalize|e }}</span><span class="badge badge-rewrite">rewrite</span></h4>
+      <div class="domains">
+        {% for safe_domain, orig_domain in domains %}<span class="chip">{{ orig_domain|e }} -> {{ safe_domain|e }}</span>{% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- ========== GROUPS ========== -->
+<div id="tab-groups" class="dns-panel">
+  <div class="panel-card">
+    <div class="panel-card-title">DNS Groups
+      <button class="btn btn-secondary btn-sm" onclick="document.getElementById('add-group-form').style.display=document.getElementById('add-group-form').style.display==='none'?'':'none'">+ Add Group</button>
+    </div>
+    <div id="add-group-form" style="display:none;margin-top:10px">
+      <form id="form-add-group" class="form-grid">
+        <div class="form-group"><label>Name</label><input type="text" name="name" placeholder="Kids Devices" required></div>
+        <div class="form-group"><label>Description</label><input type="text" name="description" placeholder="All children's devices"></div>
+        <div style="grid-column:1/-1;display:flex;gap:8px;margin-top:4px"><button type="submit" class="btn btn-primary">Create Group</button><button type="button" class="btn btn-secondary" onclick="document.getElementById('add-group-form').style.display='none'">Cancel</button></div>
+      </form>
+    </div>
+    {% if groups %}
+    <div class="group-grid">
+      {% for g in groups %}
+      <div class="group-card" id="group-{{ g.id }}">
+        <div class="group-card-head">
+          <div><strong>{{ g.name|e }}</strong><div class="mini-note">ID {{ g.id }} | <span class="group-client-count">{{ g.client_count }}</span> clients | <span class="group-rule-count">{{ g.rule_count }}</span> rules | <span class="group-list-count">{{ g.list_count }}</span> lists</div></div>
+          <button type="button" class="btn btn-sm {{ 'btn-primary' if g.enabled else 'btn-secondary' }} group-toggle-btn" onclick="toggleGroup({{ g.id }},this)">{{ 'ON' if g.enabled else 'OFF' }}</button>
+        </div>
+        <form class="group-update-form form-grid" data-group-id="{{ g.id }}">
+          <div class="form-group"><label>Name</label><input type="text" name="name" value="{{ g.name|e }}" required></div>
+          <div class="form-group"><label>Enabled</label><select name="enabled"><option value="1" {{ 'selected' if g.enabled }}>Enabled</option><option value="0" {{ 'selected' if not g.enabled }}>Disabled</option></select></div>
+          <div class="form-group" style="grid-column:1/-1"><label>Description</label><input type="text" name="description" value="{{ (g.description or '')|e }}"></div>
+          <div style="grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap"><button type="submit" class="btn btn-primary btn-sm">Save Group</button></div>
+        </form>
+
+        <h4 style="font-size:12px;margin:12px 0 4px;color:var(--accent)">Clients</h4>
+        <div class="member-list group-clients" data-group-id="{{ g.id }}">
+          {% for c in g.members.clients %}
+          <span class="member-pill" data-client-id="{{ c.id }}">{{ (c.name or c.ip or c.mac or c.id)|e }}<button type="button" title="Remove" onclick="removeGroupClient({{ g.id }},{{ c.id }},this)">x</button></span>
+          {% endfor %}
+          {% if not g.members.clients %}<span class="mini-note">No clients assigned</span>{% endif %}
+        </div>
+        <form class="group-add-client-form inline-form" data-group-id="{{ g.id }}">
+          <select name="client_id" required><option value="">Add client...</option>{% for c in clients %}<option value="{{ c.id }}">{{ (c.name or c.ip or c.mac or c.id)|e }}</option>{% endfor %}</select>
+          <button type="submit" class="btn btn-secondary btn-sm">Add</button>
+        </form>
+
+        <div class="group-manage">
+          <div>
+            <h4 style="font-size:12px;margin:12px 0 4px;color:var(--accent)">Rules</h4>
+            <div class="member-list group-rules" data-group-id="{{ g.id }}">{% for r in g.members.rules[:8] %}<span class="member-pill" data-rule-id="{{ r.id }}">#{{ r.id }} {{ r.value|truncate(24)|e }}<button type="button" onclick="removeGroupRule({{ g.id }},{{ r.id }},this)">x</button></span>{% endfor %}{% if not g.members.rules %}<span class="mini-note">No rules</span>{% endif %}</div>
+            <form class="group-add-rule-form inline-form" data-group-id="{{ g.id }}"><input type="number" name="rule_id" placeholder="Rule ID" min="1" required><button type="submit" class="btn btn-secondary btn-sm">Add Rule</button></form>
+          </div>
+          <div>
+            <h4 style="font-size:12px;margin:12px 0 4px;color:var(--accent)">Lists</h4>
+            <div class="member-list group-lists" data-group-id="{{ g.id }}">{% for l in g.members.lists %}<span class="member-pill" data-list-id="{{ l.id }}">{{ l.name|truncate(24)|e }}<button type="button" onclick="removeGroupList({{ g.id }},{{ l.id }},this)">x</button></span>{% endfor %}{% if not g.members.lists %}<span class="mini-note">No lists</span>{% endif %}</div>
+            <form class="group-add-list-form inline-form" data-group-id="{{ g.id }}"><select name="list_id" required><option value="">Add list...</option>{% for lst in lists %}<option value="{{ lst.id }}">{{ lst.name|e }}</option>{% endfor %}</select><button type="submit" class="btn btn-secondary btn-sm">Add List</button></form>
+          </div>
+          <div>
+            <h4 style="font-size:12px;margin:12px 0 4px;color:var(--accent)">Danger Zone</h4>
+            <button type="button" class="btn btn-danger btn-sm" onclick="deleteGroup({{ g.id }},this)">Delete Group</button>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="mod-empty-state"><div class="icon">&#x1f4c1;</div><h3>No groups yet</h3><p>Groups let you assign rules and blocklists to sets of clients.</p></div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ========== ACCESS ========== -->
+<div id="tab-access" class="dns-panel">
+  <div class="panel-card">
+    <div class="panel-card-title">DNS Access Control
+      <button class="btn btn-secondary btn-sm" onclick="document.getElementById('add-access-form').style.display=document.getElementById('add-access-form').style.display==='none'?'':'none'">+ Add Rule</button>
+    </div>
+    <div id="add-access-form" style="display:none;margin-top:10px">
+      <form method="POST" action="/dns/add-access-rule" class="form-grid">
+        <div class="form-group"><label>Type</label>
+          <select name="type">
+            <option value="allowed_client">Allowed Client</option>
+            <option value="disallowed_client">Disallowed Client</option>
+            <option value="blocked_host">Blocked Host</option>
+            <option value="trusted_proxy">Trusted Proxy</option>
+          </select>
+        </div>
+        <div class="form-group"><label>Value (IP, CIDR, or domain)</label><input type="text" name="value" placeholder="192.168.1.0/24" required></div>
+        <div class="form-group"><label>Comment</label><input type="text" name="comment" placeholder="Office network"></div>
+        <div style="grid-column:1/-1;display:flex;gap:8px;margin-top:4px"><button type="submit" class="btn btn-primary">Add Rule</button><button type="button" class="btn btn-secondary" onclick="document.getElementById('add-access-form').style.display='none'">Cancel</button></div>
+      </form>
+    </div>
+    {% if access_rules %}
+    <table class="rule-table" style="margin-top:10px">
+      <tr><th>ID</th><th>Type</th><th>Value</th><th>Comment</th><th>Enabled</th><th></th></tr>
+      {% for r in access_rules %}
+      <tr>
+        <td>{{ r.id }}</td>
+        <td><span class="badge badge-{{ 'allow' if r.type == 'allowed_client' else 'block' if r.type == 'disallowed_client' else 'block' if r.type == 'blocked_host' else 'allow' }}">{{ r.type|e }}</span></td>
+        <td style="font-family:monospace">{{ r.value|e }}</td>
+        <td>{{ (r.comment or '')|e }}</td>
+        <td>{{ '&#10003;' if r.enabled else '&#10005;' }}</td>
+        <td>
+          <button type="button" class="btn btn-danger btn-sm" onclick="deleteAccessRule({{ r.id }},this)">&#10005;</button>
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}
+    <div class="mod-empty-state"><div class="icon">&#x1f512;</div><h3>No access rules</h3><p>Access rules control who can use the DNS resolver and which hosts are blocked.</p></div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ========== LOCAL DNS ========== -->
+<div id="tab-local" class="dns-panel">
+  <div class="page-toolbar" style="margin-bottom:12px">
+    <div style="display:flex;align-items:center;gap:8px"><span style="font-size:14px;font-weight:800;color:var(--text-primary)">Local DNS</span><span class="mini-note">{{ local_records|length }} records, {{ rewrites|length }} rewrites</span></div>
+    <div style="display:flex;gap:8px">
+      <button class="mod-action-btn ghost" onclick="document.getElementById('add-local-form').style.display=document.getElementById('add-local-form').style.display==='none'?'':'none'">+ Record</button>
+      <button class="mod-action-btn ghost" onclick="document.getElementById('add-rewrite-form').style.display=document.getElementById('add-rewrite-form').style.display==='none'?'':'none'">+ Rewrite</button>
+    </div>
+  </div>
+  <div id="add-local-form" style="display:none;margin-bottom:12px">
+    <div class="panel-card">
+      <div class="panel-card-title">Add Local Record</div>
+      <form method="POST" action="/dns/add-local" class="form-grid">
+        <div class="form-group"><label>Domain</label><input type="text" name="domain" placeholder="server.lan" required></div>
+        <div class="form-group"><label>Type</label><select name="rtype"><option value="A">A</option><option value="AAAA">AAAA</option><option value="CNAME">CNAME</option><option value="TXT">TXT</option><option value="MX">MX</option></select></div>
+        <div class="form-group"><label>Value</label><input type="text" name="value" placeholder="192.168.1.10" required></div>
+        <div class="form-group"><label>TTL</label><input type="number" name="ttl" value="60" min="0"></div>
+        <div class="form-group"><label>Comment</label><input type="text" name="comment" placeholder="Optional"></div>
+        <div style="grid-column:1/-1;display:flex;gap:8px;margin-top:4px"><button type="submit" class="mod-action-btn primary">Add Record</button><button type="button" class="mod-action-btn ghost" onclick="document.getElementById('add-local-form').style.display='none'">Cancel</button></div>
+      </form>
+    </div>
+  </div>
+  {% if local_records %}
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
+    {% for r in local_records %}
+    <div class="panel-card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <strong style="color:var(--text-primary);font-size:13px">{{ r.domain|e }}</strong>
+        <div style="display:flex;gap:4px;align-items:center"><span class="mod-badge blue">{{ r.rtype|e }}</span><span class="mod-badge gray">TTL {{ r.ttl }}</span></div>
+      </div>
+      <div style="font-family:monospace;font-size:13px;color:var(--accent);margin-bottom:4px">{{ r.value|e }}</div>
+      {% if r.comment %}<div class="mini-note">{{ r.comment|e }}</div>{% endif %}
+      <button type="button" class="mod-action-btn danger" style="font-size:10px;padding:4px 10px;margin-top:8px" onclick="deleteLocalRecord({{ r.id }},this)">Delete</button>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="mod-empty-state"><div class="icon">&#x1f3e0;</div><h3>No local records</h3><p>Add local DNS records for your network devices.</p></div>
+  {% endif %}
+
+  <div id="add-rewrite-form" style="display:none;margin:16px 0">
+    <div class="panel-card">
+      <div class="panel-card-title">Add DNS Rewrite</div>
+      <form method="POST" action="/dns/add-rewrite" class="form-grid">
+        <div class="form-group"><label>Domain</label><input type="text" name="domain" placeholder="app.example.com" required></div>
+        <div class="form-group"><label>Target</label><input type="text" name="target" placeholder="192.168.1.100" required></div>
+        <div class="form-group"><label>Type</label><select name="rtype"><option value="CNAME">CNAME</option><option value="A">A</option></select></div>
+        <div class="form-group"><label>Comment</label><input type="text" name="comment" placeholder="Optional"></div>
+        <div style="grid-column:1/-1;display:flex;gap:8px;margin-top:4px"><button type="submit" class="mod-action-btn primary">Add Rewrite</button><button type="button" class="mod-action-btn ghost" onclick="document.getElementById('add-rewrite-form').style.display='none'">Cancel</button></div>
+      </form>
+    </div>
+  </div>
+  {% if rewrites %}
+  <div class="section-heading" style="margin-top:16px">DNS Rewrites</div>
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
+    {% for r in rewrites %}
+    <div class="panel-card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <strong style="color:var(--text-primary);font-size:13px">{{ r.domain|e }}</strong>
+        <span class="mod-badge purple">{{ r.rtype|e }}</span>
+      </div>
+      <div style="font-family:monospace;font-size:13px;color:var(--accent)">{{ r.domain|e }} <span style="color:var(--text-secondary)">&rarr;</span> {{ r.target|e }}</div>
+      <button type="button" class="mod-action-btn danger" style="font-size:10px;padding:4px 10px;margin-top:8px" onclick="deleteRewrite({{ r.id }},this)">Delete</button>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+
+<!-- ========== UPSTREAM ========== -->
+<div id="tab-upstream" class="dns-panel">
+  <div class="panel-card">
+    <div class="panel-card-title">Upstream DNS Servers
+      <button class="btn btn-secondary btn-sm" onclick="document.getElementById('add-upstream-form').style.display=document.getElementById('add-upstream-form').style.display==='none'?'':'none'">+ Add Upstream</button>
+    </div>
+    <div id="add-upstream-form" style="display:none;margin-top:10px">
+      <form method="POST" action="/dns/add-upstream" class="form-grid">
+        <div class="form-group"><label>Address</label><input type="text" name="address" placeholder="1.1.1.1" required></div>
+        <div class="form-group"><label>Protocol</label><select name="proto"><option value="udp">UDP</option><option value="tcp">TCP</option><option value="doh">DoH</option><option value="dot">DoT</option></select></div>
+        <div class="form-group"><label>Domain (optional)</label><input type="text" name="domain" placeholder="For domain-specific upstream"></div>
+        <div class="form-group"><label>Priority</label><input type="number" name="priority" value="100" min="1"></div>
+        <div class="form-group"><label>Comment</label><input type="text" name="comment" placeholder="Optional"></div>
+        <div style="grid-column:1/-1"><button type="submit" class="btn btn-primary">Add Upstream</button></div>
+      </form>
+    </div>
+    {% if upstreams %}
+    <table class="rule-table" style="margin-top:10px">
+      <tr><th>Address</th><th>Protocol</th><th>Domain</th><th>Priority</th><th></th></tr>
+      {% for u in upstreams %}
+      <tr><td>{{ u.address|e }}</td><td>{{ u.proto|e }}</td><td>{{ (u.domain or '&#8212;')|e }}</td><td>{{ u.priority }}</td>
+        <td><button type="button" class="btn btn-danger btn-sm" onclick="deleteUpstream({{ u.id }},this)">&#10005;</button></td></tr>
+      {% endfor %}
+    </table>
+    {% else %}
+    <div class="mod-empty-state"><div class="icon">&#x1f310;</div><h3>No upstream servers</h3><p>Default: 9.9.9.9 and 1.1.1.1</p></div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ========== SETTINGS ========== -->
+<div id="tab-settings" class="dns-panel">
+  <div class="panel-card">
+    <div class="panel-card-title">DNS Settings</div>
+    <form method="POST" action="/dns/settings" class="form-grid">
+      <div class="form-group"><label>Listen Address</label><input type="text" name="dns_listen_addr" value="{{ settings.dns_listen_addr|e }}"></div>
+      <div class="form-group"><label>Listen Port</label><input type="number" name="dns_listen_port" value="{{ settings.dns_listen_port }}" min="1" max="65535"></div>
+      <div class="form-group"><label>Cache Size</label><input type="number" name="cache_size" value="{{ settings.cache_size }}" min="100" max="100000"></div>
+      <div class="form-group"><label>Block Mode</label><select name="block_mode">
+        <option value="null_ip" {{ 'selected' if settings.block_mode=='null_ip' }}>Null IP (0.0.0.0)</option>
+        <option value="nxdomain" {{ 'selected' if settings.block_mode=='nxdomain' }}>NXDOMAIN</option>
+        <option value="refused" {{ 'selected' if settings.block_mode=='refused' }}>REFUSED</option>
+        <option value="custom_ip" {{ 'selected' if settings.block_mode=='custom_ip' }}>Custom IP</option>
+      </select></div>
+      <div class="form-group"><label>Custom Block IPv4</label><input type="text" name="custom_block_ipv4" value="{{ settings.custom_block_ipv4|e }}"></div>
+      <div class="form-group"><label>Custom Block IPv6</label><input type="text" name="custom_block_ipv6" value="{{ settings.custom_block_ipv6|e }}"></div>
+      <div class="form-group"><label>Blocked Response TTL (sec)</label><input type="number" name="blocked_response_ttl" value="{{ settings.blocked_response_ttl }}" min="0"></div>
+      <div class="form-group"><label>Local Domain</label><input type="text" name="local_domain" value="{{ settings.local_domain|e }}"></div>
+      <div class="form-group"><label>Query Log Retention (days)</label><input type="number" name="query_log_retention_days" value="{{ settings.query_log_retention_days }}" min="1"></div>
+      <div class="form-group"><label>Rate Limit (QPS/subnet)</label><input type="number" name="ratelimit_qps" value="{{ settings.ratelimit_qps }}" min="0"></div>
+      <div class="form-group"><label>Rate Limit Subnet IPv4</label><input type="number" name="ratelimit_subnet_len_ipv4" value="{{ settings.ratelimit_subnet_len_ipv4 }}" min="8" max="32"></div>
+      <div class="form-group"><label>Rate Limit Subnet IPv6</label><input type="number" name="ratelimit_subnet_len_ipv6" value="{{ settings.ratelimit_subnet_len_ipv6 }}" min="48" max="128"></div>
+      <div class="form-group"><label>Refuse ANY Queries</label><select name="refuse_any">
+        <option value="true" {{ 'selected' if settings.refuse_any }}>Yes</option>
+        <option value="false" {{ 'selected' if not settings.refuse_any }}>No</option>
+      </select></div>
+      <div class="form-group"><label>Redirect External DNS</label><select name="redirect_external_dns">
+        <option value="true" {{ 'selected' if settings.redirect_external_dns }}>Yes</option>
+        <option value="false" {{ 'selected' if not settings.redirect_external_dns }}>No</option>
+      </select></div>
+      <div class="form-group"><label>Block DoH Providers</label><select name="block_doh_providers">
+        <option value="true" {{ 'selected' if settings.block_doh_providers }}>Yes</option>
+        <option value="false" {{ 'selected' if not settings.block_doh_providers }}>No</option>
+      </select></div>
+      <div class="form-group"><label>Query Log Enabled</label><select name="query_log_enabled">
+        <option value="true" {{ 'selected' if settings.query_log_enabled }}>Yes</option>
+        <option value="false" {{ 'selected' if not settings.query_log_enabled }}>No</option>
+      </select></div>
+      <div style="grid-column:1/-1;display:flex;gap:8px;margin-top:8px">
+        <button type="submit" class="btn btn-primary">Save Settings</button>
+        <button type="button" class="btn btn-secondary" onclick="applyConfig()">Apply Config & Reload</button>
+      </div>
+    </form>
+  </div>
+  </div>
+
+<!-- ========== DHCP ========== -->
+<div id="tab-dhcp" class="dns-panel">
+  <div class="page-toolbar" style="margin-bottom:12px">
+    <div style="display:flex;align-items:center;gap:8px"><span style="font-size:14px;font-weight:800;color:var(--text-primary)">DHCP Server</span><span class="mini-note">{{ dhcp_status.active_leases }} leases, {{ dhcp_scopes|length }} scopes, {{ dhcp_static_leases|length }} static</span></div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <button class="btn {{ 'btn-danger' if dhcp_status.enabled else 'btn-primary' }} btn-sm" onclick="toggleDHCP()">{{ '⏹ Disable' if dhcp_status.enabled else '▶ Enable' }} DHCP</button>
+      <span class="badge {{ 'badge-allow' if dhcp_status.enabled else 'badge-block' }}">{{ 'ON' if dhcp_status.enabled else 'OFF' }}</span>
+    </div>
+  </div>
+  <div class="kpi-grid" style="margin-bottom:12px">
+    <div class="kpi-card accent"><div class="kpi-label">Active Leases</div><div class="kpi-value">{{ dhcp_status.active_leases }}</div><div class="kpi-note">Connected</div></div>
+    <div class="kpi-card"><div class="kpi-label">Scopes</div><div class="kpi-value">{{ dhcp_scopes|length }}</div><div class="kpi-note">DHCP pools</div></div>
+    <div class="kpi-card"><div class="kpi-label">Static Leases</div><div class="kpi-value">{{ dhcp_static_leases|length }}</div><div class="kpi-note">Reservations</div></div>
+    <div class="kpi-card {{ 'success' if dhcp_status.enabled else 'danger' }}"><div class="kpi-label">DHCP</div><div class="kpi-value">{{ 'ON' if dhcp_status.enabled else 'OFF' }}</div><div class="kpi-note">{{ 'Running' if dhcp_status.enabled else 'Stopped' }}</div></div>
+  </div>
+
+  <div class="panel-card">
+    <div class="panel-card-title">DHCP Scopes <span>{{ dhcp_scopes|length }} configured</span>
+      <button class="btn btn-secondary btn-sm" onclick="document.getElementById('dhcp-add-scope-form').style.display=document.getElementById('dhcp-add-scope-form').style.display==='none'?'':'none'">+ Add Scope</button>
+    </div>
+    <div id="dhcp-add-scope-form" style="display:none;margin-top:10px">
+      <form method="POST" action="/dns/dhcp/add-scope" class="form-grid">
+        <div class="form-group"><label>Name</label><input type="text" name="name" placeholder="LAN DHCP" required></div>
+        <div class="form-group"><label>Interface</label><input type="text" name="interface" placeholder="eth0" required></div>
+        <div class="form-group"><label>Subnet</label><input type="text" name="subnet" placeholder="{{ dhcp_scopes[0].subnet if dhcp_scopes else '' }}" required></div>
+        <div class="form-group"><label>Range Start</label><input type="text" name="range_start" placeholder="{{ dhcp_scopes[0].range_start if dhcp_scopes else '' }}"></div>
+        <div class="form-group"><label>Range End</label><input type="text" name="range_end" placeholder="{{ dhcp_scopes[0].range_end if dhcp_scopes else '' }}"></div>
+        <div class="form-group"><label>Router/Gateway</label><input type="text" name="router" placeholder="{{ dhcp_scopes[0].router if dhcp_scopes else settings.dns_listen_addr or '' }}"></div>
+        <div class="form-group"><label>DNS Servers</label><input type="text" name="dns_servers" placeholder="{{ settings.dns_listen_addr or '' }}"></div>
+        <div class="form-group"><label>Domain</label><input type="text" name="domain" value="lan"></div>
+        <div class="form-group"><label>Lease Time (sec)</label><input type="number" name="lease_time" value="86400"></div>
+        <div style="grid-column:1/-1;display:flex;gap:8px;margin-top:4px"><button type="submit" class="btn btn-primary">Add Scope</button><button type="button" class="btn btn-secondary" onclick="document.getElementById('dhcp-add-scope-form').style.display='none'">Cancel</button></div>
+      </form>
+    </div>
+    {% if dhcp_scopes %}
+    <table class="rule-table" style="margin-top:10px">
+      <tr><th>Name</th><th>Interface</th><th>Subnet</th><th>Range Start</th><th>Range End</th><th>Gateway</th><th>DNS</th><th>Domain</th><th>Lease</th><th>Status</th><th></th></tr>
+      {% for s in dhcp_scopes %}
+      <tr id="scope-row-{{ s.id }}">
+        <td id="sc-name-{{ s.id }}"><strong>{{ s.name|e }}</strong></td>
+        <td id="sc-iface-{{ s.id }}">{{ s.interface|e }}</td>
+        <td id="sc-subnet-{{ s.id }}" style="font-family:monospace;font-size:11px">{{ s.subnet|e }}</td>
+        <td id="sc-rstart-{{ s.id }}" style="font-family:monospace;font-size:11px">{{ (s.range_start or '')|e }}</td>
+        <td id="sc-rend-{{ s.id }}" style="font-family:monospace;font-size:11px">{{ (s.range_end or '')|e }}</td>
+        <td id="sc-gw-{{ s.id }}" style="font-family:monospace;font-size:11px">{{ (s.router or '')|e }}</td>
+        <td id="sc-dns-{{ s.id }}" style="font-family:monospace;font-size:11px">{{ (s.dns_servers_display or s.dns_servers or '')|e }}</td>
+        <td id="sc-domain-{{ s.id }}">{{ (s.domain or '')|e }}</td>
+        <td id="sc-lease-{{ s.id }}">{{ s.lease_time }}s</td>
+        <td><span class="badge badge-{{ 'allow' if s.enabled else 'block' }}">{{ 'ON' if s.enabled else 'OFF' }}</span></td>
+        <td style="white-space:nowrap">
+          <button class="btn btn-primary btn-sm" onclick='editScope({{ s.id }},{{ s.name|tojson }},{{ s.interface|tojson }},{{ s.subnet|tojson }},{{ (s.range_start or '')|tojson }},{{ (s.range_end or '')|tojson }},{{ (s.router or '')|tojson }},{{ (s.dns_servers_display or s.dns_servers or '')|tojson }},{{ (s.domain or '')|tojson }},{{ s.lease_time }})'>Edit</button>
+          <button class="btn btn-sm {{ 'btn-primary' if s.enabled else 'btn-secondary' }}" onclick="toggleScope({{ s.id }},this)">{{ 'ON' if s.enabled else 'OFF' }}</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteScopeNow({{ s.id }},this)">&#10005;</button>
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}
+    <div class="mod-empty-state"><div class="icon">&#x1f310;</div><h3>No DHCP scopes</h3><p>Add a DHCP scope to start assigning IP addresses.</p></div>
+    {% endif %}
+  </div>
+
+  <div class="panel-card">
+    <div class="panel-card-title">Active Leases <span>{{ dhcp_active_leases|length }} total</span>
+      <button class="btn btn-secondary btn-sm" onclick="ajaxPost('/dns/dhcp/refresh-leases',{},function(){reloadTab('dhcp')})">Refresh from Lease File</button>
+    </div>
+    {% if dhcp_active_leases %}
+    <table class="rule-table" style="margin-top:10px">
+      <tr><th>IP</th><th>MAC</th><th>Hostname</th><th>State</th><th>Source</th><th></th></tr>
+      {% for l in dhcp_active_leases %}
+      <tr>
+        <td style="font-family:monospace">{{ l.ip|e }}</td>
+        <td style="font-family:monospace;font-size:11px">{{ l.mac|e }}</td>
+        <td>{{ (l.hostname or '—')|e }}</td>
+        <td><span class="badge badge-{{ 'allow' if l.state == 'active' else 'block' }}">{{ l.state|e }}</span></td>
+        <td class="mini-note">{{ (l.source or '')|e }}</td>
+        <td>{% if l.state == 'active' %}<button class="btn btn-secondary btn-sm" onclick="ajaxPost('/dns/dhcp/make-static/{{ l.id }}',{},function(){reloadTab('dhcp')})">Make Static</button>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}
+    <div class="mod-empty-state"><div class="icon">&#x1f4cb;</div><h3>No leases found</h3><p>Leases will appear here when clients request IP addresses.</p></div>
+    {% endif %}
+  </div>
+
+  <div class="panel-card">
+    <div class="panel-card-title">Static Leases <span>{{ dhcp_static_leases|length }} reservations</span>
+      <button class="btn btn-secondary btn-sm" onclick="document.getElementById('dhcp-add-static-form').style.display=document.getElementById('dhcp-add-static-form').style.display==='none'?'':'none'">+ Add Static Lease</button>
+    </div>
+    <div id="dhcp-add-static-form" style="display:none;margin-top:10px">
+      <form method="POST" action="/dns/dhcp/add-static-lease" class="form-grid">
+        <div class="form-group"><label>MAC Address</label><input type="text" name="mac" placeholder="AA:BB:CC:DD:EE:FF" required></div>
+        <div class="form-group"><label>IP Address</label><input type="text" name="ip" placeholder="{{ settings.dns_listen_addr or '192.168.1.2' }}" required></div>
+        <div class="form-group"><label>Hostname</label><input type="text" name="hostname" placeholder="my-device"></div>
+        <div class="form-group"><label>Comment</label><input type="text" name="comment" placeholder="Optional"></div>
+        <div style="grid-column:1/-1;display:flex;gap:8px;margin-top:4px"><button type="submit" class="btn btn-primary">Add</button><button type="button" class="btn btn-secondary" onclick="document.getElementById('dhcp-add-static-form').style.display='none'">Cancel</button></div>
+      </form>
+    </div>
+    {% if dhcp_static_leases %}
+    <table class="rule-table" style="margin-top:10px">
+      <tr><th>MAC</th><th>IP</th><th>Hostname</th><th>Comment</th><th></th></tr>
+      {% for l in dhcp_static_leases %}
+      <tr id="static-lease-row-{{ l.id }}">
+        <td style="font-family:monospace;font-size:11px" id="sl-mac-{{ l.id }}">{{ l.mac|e }}</td>
+        <td style="font-family:monospace" id="sl-ip-{{ l.id }}">{{ l.ip|e }}</td>
+        <td id="sl-hostname-{{ l.id }}">{{ (l.hostname or '')|e }}</td>
+        <td class="mini-note" id="sl-comment-{{ l.id }}">{{ (l.comment or '')|e }}</td>
+        <td style="white-space:nowrap">
+          <button class="btn btn-primary btn-sm" onclick="editStaticLease({{ l.id }},{{ l.mac|tojson }},{{ l.ip|tojson }},{{ (l.hostname or '')|tojson }},{{ (l.comment or '')|tojson }})">Edit</button>
+          <button class="btn btn-danger btn-sm" onclick="if(confirm('Delete this static lease?'))ajaxPost('/dns/dhcp/delete-static-lease/{{ l.id }}',{},function(r){showToast(r.message||'Deleted');reloadTab('dhcp');reloadTab('clients')})">&#10005;</button>
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}
+    <div class="mod-empty-state"><div class="icon">&#x1f4cc;</div><h3>No static leases</h3><p>Add static reservations for devices that need consistent IP addresses.</p></div>
+    {% endif %}
+  </div>
+
+  <div class="panel-card">
+    <div class="panel-card-title">DHCP Options <span>{{ dhcp_options_list|length }} configured</span>
+      <button class="btn btn-secondary btn-sm" onclick="document.getElementById('dhcp-add-option-form').style.display=document.getElementById('dhcp-add-option-form').style.display==='none'?'':'none'">+ Add Option</button>
+    </div>
+    <div id="dhcp-add-option-form" style="display:none;margin-top:10px">
+      <form method="POST" action="/dns/dhcp/add-option" class="form-grid">
+        <div class="form-group"><label>Scope (empty = global)</label><select name="scope_id"><option value="">Global</option>{% for s in dhcp_scopes %}<option value="{{ s.id }}">{{ s.name|e }} ({{ s.interface|e }})</option>{% endfor %}</select></div>
+        <div class="form-group"><label>Option Code</label><select name="option_code"><option value="1">1 - Subnet Mask</option><option value="3">3 - Router/Gateway</option><option value="6" selected>6 - DNS Servers</option><option value="12">12 - Hostname</option><option value="15">15 - Domain Name</option><option value="28">28 - Broadcast Address</option><option value="42">42 - NTP Servers</option><option value="66">66 - TFTP Server</option><option value="67">67 - Bootfile</option><option value="119">119 - Domain Search</option><option value="121">121 - Static Routes</option></select></div>
+        <div class="form-group"><label>Value</label><input type="text" name="option_value" placeholder="8.8.8.8, 8.8.4.4" required></div>
+        <div class="form-group"><label>Type</label><select name="option_type"><option value="text">Text</option><option value="ip">IP Address</option><option value="ips">IP Addresses (comma-separated)</option><option value="u8">Uint8</option><option value="u16">Uint16</option><option value="bool">Boolean</option><option value="hex">Hex</option></select></div>
+        <div class="form-group"><label>Comment</label><input type="text" name="comment" placeholder="Optional note"></div>
+        <div style="grid-column:1/-1;display:flex;gap:8px;margin-top:4px"><button type="submit" class="btn btn-primary">Add Option</button><button type="button" class="btn btn-secondary" onclick="document.getElementById('dhcp-add-option-form').style.display='none'">Cancel</button></div>
+      </form>
+    </div>
+    {% if dhcp_options_list %}
+    <table class="rule-table" style="margin-top:10px">
+      <tr><th>Scope</th><th>Code</th><th>Name</th><th>Value</th><th>Type</th><th>Enabled</th><th></th></tr>
+      {% for opt in dhcp_options_list %}
+      <tr>
+        <td>{{ 'Global' if not opt.scope_id else opt.scope_id }}</td>
+        <td>{{ opt.option_code }}</td>
+        <td>{{ (opt.option_name or '')|e }}</td>
+        <td style="font-family:monospace">{{ opt.option_value|e }}</td>
+        <td>{{ opt.option_type|e }}</td>
+        <td><span class="badge badge-{{ 'allow' if opt.enabled else 'block' }}">{{ 'ON' if opt.enabled else 'OFF' }}</span></td>
+        <td><button class="btn btn-danger btn-sm" onclick="if(confirm('Delete this option?'))ajaxPost('/dns/dhcp/delete-option/{{ opt.id }}',{},function(){reloadTab('dhcp')})">&#10005;</button></td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}
+    <div class="mod-empty-state"><p>No DHCP options configured. Default options are set per-scope.</p></div>
+    {% endif %}
+  </div>
+
+  <div class="panel-card">
+    <div class="panel-card-title">DHCP Safety Checks</div>
+    <p class="mini-note" style="margin-bottom:12px">Before enabling DHCP on an interface, verify these checks:</p>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <div style="padding:14px;background:var(--bg-tertiary);border-radius:12px;border:1px solid var(--border)">
+        <strong style="color:var(--accent);font-size:13px">1. No conflicting DHCP server</strong>
+        <p class="mini-note" style="margin:4px 0 8px">Detect existing DHCP servers on the network.</p>
+        <div class="inline-form">
+          <input type="text" id="dhcp-detect-iface" placeholder="eth0" style="width:120px;padding:6px;border:1px solid var(--border);border-radius:6px;background:var(--bg-tertiary);color:var(--text-primary);font-size:12px">
+          <button class="btn btn-secondary btn-sm" onclick="dhcpDetectActive()">Detect DHCP</button>
+        </div>
+      </div>
+      <div style="padding:14px;background:var(--bg-tertiary);border-radius:12px;border:1px solid var(--border)">
+        <strong style="color:var(--accent);font-size:13px">2. Validate Scope Config</strong>
+        <p class="mini-note" style="margin:4px 0 8px">Check that range, gateway, and subnet are valid and non-overlapping.</p>
+        <form method="POST" action="/dns/dhcp/validate-config" class="form-grid" id="dhcp-validate-form">
+          <div class="form-group"><label>Interface</label><input type="text" name="interface" placeholder="eth0"></div>
+          <div class="form-group"><label>Subnet</label><input type="text" name="subnet" placeholder="192.168.1.0/24"></div>
+          <div class="form-group"><label>Range Start</label><input type="text" name="range_start" placeholder="192.168.1.100"></div>
+          <div class="form-group"><label>Range End</label><input type="text" name="range_end" placeholder="192.168.1.250"></div>
+          <div class="form-group"><label>Router</label><input type="text" name="router" placeholder="192.168.1.1"></div>
+          <div style="grid-column:1/-1"><button type="submit" class="btn btn-secondary btn-sm">Validate Config</button></div>
+        </form>
+      </div>
+      <div style="padding:14px;background:var(--bg-tertiary);border-radius:12px;border:1px solid var(--border)">
+        <strong style="color:var(--accent);font-size:13px">3. Never on WAN</strong>
+        <p class="mini-note" style="margin:4px 0 0">Do not enable DHCP on the WAN interface — this can break your network.</p>
+      </div>
+    </div>
+  </div>
+  <div style="border:2px solid var(--danger);border-radius:16px;padding:16px;margin:12px 0;background:color-mix(in srgb,var(--danger) 6%,var(--bg-card))">
+    <h3 style="color:var(--danger);font-size:14px;margin:0 0 8px">&#x26A0; Danger Zone</h3>
+    <p style="font-size:12px;color:var(--text-secondary)">Write DHCP config and reload dnsmasq. This will restart the DNS/DHCP server.</p>
+    <button class="btn btn-danger btn-sm" style="margin-top:8px" onclick="if(confirm('Reload dnsmasq? This restarts DNS/DHCP.'))ajaxPost('/dns/dhcp/reload',{},function(r){showToast(r.message||'Reloaded')})">Apply DHCP Config & Reload dnsmasq</button>
+  </div>
+</div>
+
+<!-- ========== HOSTNAME RULES ========== -->
+<div id="tab-hostnames" class="dns-panel">
+  <div class="panel-card">
+    <div class="panel-card-title">Hostname Rules <span style="font-weight:400;font-size:11px;color:var(--text-muted)">Track devices by hostname, auto-resolve IPs, apply DNS policies &amp; firewall rules</span>
+      <div style="display:flex;gap:6px;float:right">
+        <button class="btn btn-secondary btn-sm" onclick="resolveAllHostnames()">Resolve All Now</button>
+        <button class="btn btn-secondary btn-sm" onclick="document.getElementById('add-hostname-form').style.display=document.getElementById('add-hostname-form').style.display==='none'?'':'none'">+ Add Hostname</button>
+      </div>
+    </div>
+    <div id="add-hostname-form" style="display:none;margin-top:10px">
+      <form class="form-grid" onsubmit="event.preventDefault();addHostnameRule(this)">
+        <div class="form-group"><label>Hostname</label><input type="text" name="hostname" placeholder="my-device.local" required></div>
+        <div class="form-group"><label>Rule Type</label>
+          <select name="rule_type">
+            <option value="both">DNS + Firewall</option>
+            <option value="dns">DNS Only</option>
+            <option value="firewall">Firewall Only</option>
+          </select>
+        </div>
+        <div class="form-group"><label>Firewall Action</label>
+          <select name="firewall_action">
+            <option value="">None (DNS only)</option>
+            <option value="block">Block Internet</option>
+            <option value="allow">Allow Internet (whitelist)</option>
+          </select>
+        </div>
+        <div class="form-group"><label>DNS Policy</label>
+          <select name="dns_policy_id">
+            <option value="">None</option>
+            {% for p in policies %}<option value="{{ p.id }}">{{ p.name|e }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="form-group"><label>Comment</label><input type="text" name="comment" placeholder="Optional note"></div>
+        <div style="grid-column:1/-1;display:flex;gap:8px;margin-top:4px"><button type="submit" class="btn btn-primary">Add Rule</button><button type="button" class="btn btn-secondary" onclick="document.getElementById('add-hostname-form').style.display='none'">Cancel</button></div>
+      </form>
+    </div>
+    {% if hostname_rules %}
+    <table class="rule-table" style="margin-top:10px">
+      <tr><th>Hostname</th><th>Resolved IP</th><th>Type</th><th>Firewall</th><th>DNS Policy</th><th>Status</th><th>Last Resolved</th><th>Comment</th><th></th></tr>
+      {% for hr in hostname_rules %}
+      <tr id="hr-row-{{ loop.index }}">
+        <td style="font-family:monospace;font-size:12px;font-weight:600">{{ hr.hostname|e }}</td>
+        <td style="font-family:monospace;font-size:11px">{{ hr.resolved_ip or '—' }}</td>
+        <td><span class="badge {{ 'badge-allow' if hr.rule_type == 'dns' else 'badge-block' if hr.rule_type == 'firewall' else '' }}">{{ hr.rule_type|e }}</span></td>
+        <td><span class="badge {{ 'badge-danger' if hr.firewall_action == 'block' else 'badge-allow' }}">{{ hr.firewall_action|e }}</span></td>
+        <td style="font-size:11px">{{ hr.dns_policy_name or '—' }}</td>
+        <td>
+          <button class="btn btn-sm {{ 'btn-primary' if hr.enabled else 'btn-secondary' }}" onclick="toggleHostnameRule('{{ hr.hostname|e }}',{{ 'false' if hr.enabled else 'true' }})">{{ 'ON' if hr.enabled else 'OFF' }}</button>
+        </td>
+        <td style="font-size:10px;color:var(--text-muted)">{{ hr.last_resolved_ts or '—' }}</td>
+        <td style="font-size:11px;color:var(--text-secondary)">{{ hr.comment or '' }}</td>
+        <td>
+          <button class="btn btn-danger btn-sm" onclick="if(confirm('Delete rule for {{ hr.hostname|e }}?'))deleteHostnameRule('{{ hr.hostname|e }}')">X</button>
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}
+    <div class="mod-empty-state" style="margin-top:20px"><div class="icon">&#x1f310;</div><h3>No hostname rules yet</h3><p>Add a hostname rule or enable "Track by hostname" on a DNS client to auto-create rules.</p></div>
+    {% endif %}
+  </div>
+
+  {% if tracked_clients %}
+  <div class="panel-card" style="margin-top:12px">
+    <div class="panel-card-title">Tracked Clients <span style="font-weight:400;font-size:11px;color:var(--text-muted)">DNS clients with hostname tracking enabled</span></div>
+    <table class="rule-table">
+      <tr><th>Name</th><th>Hostname</th><th>Current IP</th><th>Firewall</th><th>Rule Exists</th></tr>
+      {% for tc in tracked_clients %}
+      <tr>
+        <td>{{ (tc.name or '—')|e }}</td>
+        <td style="font-family:monospace;font-weight:600">{{ (tc.hostname or '—')|e }}</td>
+        <td style="font-family:monospace">{{ tc.ip|e }}</td>
+        <td><span class="badge {{ 'badge-danger' if tc.firewall_action == 'block' else 'badge-allow' if tc.firewall_action == 'allow' else '' }}">{{ tc.firewall_action or 'off' }}</span></td>
+        <td>{{ 'Yes' if tc.rule_exists else 'No' }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+  {% endif %}
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+function showTab(name,btn){
+  document.querySelectorAll('.dns-panel').forEach(function(p){p.classList.remove('active')});
+  document.querySelectorAll('.page-tab').forEach(function(b){b.classList.remove('active')});
+  var el=document.getElementById('tab-'+name);
+  if(el)el.classList.add('active');
+  if(btn)btn.classList.add('active');
+  if(history.replaceState)history.replaceState(null,'','#'+name);
+}
+function activateInitialTab(){
+  var tab=(location.hash||'').replace('#','');
+  var params=new URLSearchParams(location.search);
+  if(!tab && (params.has('rule_search')||params.has('rule_limit')||params.has('rule_page')))tab='rules';
+  if(!tab)return;
+  var btn=Array.from(document.querySelectorAll('.page-tab')).find(function(b){return (b.getAttribute('onclick')||'').indexOf("'"+tab+"'")!==-1;});
+  showTab(tab,btn);
+}
+function showAddRule(){document.getElementById('add-rule-form').style.display='';document.getElementById('import-rules-form').style.display='none';}
+function showImportRule(){document.getElementById('import-rules-form').style.display='';document.getElementById('add-rule-form').style.display='none';}
+function showAddList(){document.getElementById('add-list-form').style.display=document.getElementById('add-list-form').style.display==='none'?'':'none';}
+function filterServiceCards(){
+  var q=(document.getElementById('serviceSearch')?.value||'').toLowerCase().trim();
+  document.querySelectorAll('.service-card-filter').forEach(function(card){
+    card.style.display=!q||card.dataset.name.indexOf(q)!==-1?'':'none';
+  });
+}
+function toggleAllServices(checked){
+  document.querySelectorAll('.global-service-checkbox').forEach(function(cb){cb.checked=checked;});
+}
+function toggleDNS(){
+  fetch('/api/dns/toggle',{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'}}).then(r=>r.json()).then(d=>{showToast(d.message||d.error||'Done');setTimeout(()=>location.reload(),1500);}).catch(e=>showToast('Error: '+e,'error'));
+}
+function applyConfig(){
+  fetch('/api/dns/apply',{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'}}).then(r=>r.json()).then(d=>{showToast(d.message||d.error||'Config applied');}).catch(e=>showToast('Error: '+e,'error'));
+}
+function toggleDHCP(){
+  var btn=document.querySelector('[onclick*="toggleDHCP"]');
+  var enable=btn&&btn.textContent.trim().includes('Enable');
+  showToast(enable?'Enabling DHCP...':'Disabling DHCP...','info');
+  fetch('/dns/dhcp/toggle',{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest','Content-Type':'application/x-www-form-urlencoded'},body:'enabled='+(enable?'1':'0')})
+    .then(r=>r.json()).then(d=>{showToast(d.message||d.error||'Done');setTimeout(()=>reloadTab('dhcp'),500);}).catch(e=>showToast('Error: '+e,'error'));
+}
+function editScope(id,name,iface,subnet,rstart,rend,gw,dns,domain,lease){
+  var inp='style="width:100%;font-size:11px;padding:2px 4px;border:1px solid var(--border);border-radius:4px;background:var(--bg-tertiary);color:var(--text-primary)"';
+  document.getElementById('sc-name-'+id).innerHTML='<input type="text" id="se-name-'+id+'" value="'+name+'" '+inp+'>';
+  document.getElementById('sc-iface-'+id).innerHTML='<input type="text" id="se-iface-'+id+'" value="'+iface+'" '+inp+'>';
+  document.getElementById('sc-subnet-'+id).innerHTML='<input type="text" id="se-subnet-'+id+'" value="'+subnet+'" '+inp+'>';
+  document.getElementById('sc-rstart-'+id).innerHTML='<input type="text" id="se-rstart-'+id+'" value="'+rstart+'" '+inp+'>';
+  document.getElementById('sc-rend-'+id).innerHTML='<input type="text" id="se-rend-'+id+'" value="'+rend+'" '+inp+'>';
+  document.getElementById('sc-gw-'+id).innerHTML='<input type="text" id="se-gw-'+id+'" value="'+gw+'" '+inp+'>';
+  document.getElementById('sc-dns-'+id).innerHTML='<input type="text" id="se-dns-'+id+'" value="'+dns+'" '+inp+'>';
+  document.getElementById('sc-domain-'+id).innerHTML='<input type="text" id="se-domain-'+id+'" value="'+domain+'" '+inp+'>';
+  document.getElementById('sc-lease-'+id).innerHTML='<input type="number" id="se-lease-'+id+'" value="'+lease+'" '+inp+' style="width:70px">';
+  var row=document.getElementById('scope-row-'+id);
+  var btnTd=row.cells[row.cells.length-1];
+  btnTd.innerHTML='<button class="btn btn-primary btn-sm" onclick="saveScope('+id+')">Save</button> <button class="btn btn-secondary btn-sm" onclick=\'cancelEditScope('+id+','+JSON.stringify(name)+','+JSON.stringify(iface)+','+JSON.stringify(subnet)+','+JSON.stringify(rstart)+','+JSON.stringify(rend)+','+JSON.stringify(gw)+','+JSON.stringify(dns)+','+JSON.stringify(domain)+','+lease+')\'>Cancel</button>';
+}
+function saveScope(id){
+  var data={name:document.getElementById('se-name-'+id).value.trim(),interface:document.getElementById('se-iface-'+id).value.trim(),subnet:document.getElementById('se-subnet-'+id).value.trim(),range_start:document.getElementById('se-rstart-'+id).value.trim(),range_end:document.getElementById('se-rend-'+id).value.trim(),router:document.getElementById('se-gw-'+id).value.trim(),dns_servers:document.getElementById('se-dns-'+id).value.trim(),domain:document.getElementById('se-domain-'+id).value.trim(),lease_time:document.getElementById('se-lease-'+id).value.trim()};
+  document.getElementById('sc-name-'+id).innerHTML='<strong>'+data.name+'</strong>';
+  document.getElementById('sc-iface-'+id).textContent=data.interface;
+  document.getElementById('sc-subnet-'+id).textContent=data.subnet;
+  document.getElementById('sc-rstart-'+id).textContent=data.range_start;
+  document.getElementById('sc-rend-'+id).textContent=data.range_end;
+  document.getElementById('sc-gw-'+id).textContent=data.router;
+  document.getElementById('sc-dns-'+id).textContent=data.dns_servers;
+  document.getElementById('sc-domain-'+id).textContent=data.domain;
+  document.getElementById('sc-lease-'+id).textContent=data.lease_time+'s';
+  restoreScopeButtons(id,data.name);
+  showToast('Saving...','info');
+  fetch('/dns/dhcp/update-scope/'+id,{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest','Content-Type':'application/x-www-form-urlencoded'},body:Object.keys(data).map(function(k){return encodeURIComponent(k)+'='+encodeURIComponent(data[k]);}).join('&')})
+    .then(function(r){return r.json();}).then(function(d){showToast(d.message||d.error||'Updated');}).catch(function(e){showToast('Error: '+e,'error');});
+}
+function cancelEditScope(id,name,iface,subnet,rstart,rend,gw,dns,domain,lease){
+  document.getElementById('sc-name-'+id).innerHTML='<strong>'+name+'</strong>';
+  document.getElementById('sc-iface-'+id).textContent=iface;
+  document.getElementById('sc-subnet-'+id).textContent=subnet;
+  document.getElementById('sc-rstart-'+id).textContent=rstart;
+  document.getElementById('sc-rend-'+id).textContent=rend;
+  document.getElementById('sc-gw-'+id).textContent=gw;
+  document.getElementById('sc-dns-'+id).textContent=dns;
+  document.getElementById('sc-domain-'+id).textContent=domain;
+  document.getElementById('sc-lease-'+id).textContent=lease+'s';
+  restoreScopeButtons(id,name);
+}
+function restoreScopeButtons(id,name){
+  var row=document.getElementById('scope-row-'+id);
+  var btnTd=row.cells[row.cells.length-1];
+  btnTd.innerHTML='<button class="btn btn-primary btn-sm" onclick=\'editScope('+id+','+JSON.stringify(name)+','+JSON.stringify(row.cells[1].textContent)+','+JSON.stringify(row.cells[2].textContent)+','+JSON.stringify(row.cells[3].textContent)+','+JSON.stringify(row.cells[4].textContent)+','+JSON.stringify(row.cells[5].textContent)+','+JSON.stringify(row.cells[6].textContent)+','+JSON.stringify(row.cells[7].textContent)+','+parseInt(row.cells[8].textContent)+')\'>Edit</button> <button class="btn btn-sm btn-secondary" onclick="toggleScope('+id+',this)">OFF</button> <button class="btn btn-danger btn-sm" onclick="deleteScopeNow('+id+',this)">&#10005;</button>';
+}
+function toggleScope(id,btn){
+  showToast('Toggling...','info');
+  fetch('/dns/dhcp/toggle-scope/'+id,{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'}})
+    .then(function(r){return r.json();}).then(function(d){showToast(d.message||d.error||'Done');reloadTab('dhcp');}).catch(function(e){showToast('Error: '+e,'error');});
+}
+function deleteScopeNow(id,btn){
+  if(!confirm('Delete this scope?'))return;
+  var row=document.getElementById('scope-row-'+id);
+  if(row)row.remove();
+  showToast('Deleting...','info');
+  fetch('/dns/dhcp/delete-scope/'+id,{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'}})
+    .then(function(r){return r.json();}).then(function(d){showToast(d.message||'Deleted');}).catch(function(e){showToast('Error: '+e,'error');reloadTab('dhcp');});
+}
+function editStaticLease(id,mac,ip,hostname,comment){
+  var row=document.getElementById('static-lease-row-'+id);
+  if(!row)return;
+  var macTd=document.getElementById('sl-mac-'+id);
+  var ipTd=document.getElementById('sl-ip-'+id);
+  var hostTd=document.getElementById('sl-hostname-'+id);
+  var commTd=document.getElementById('sl-comment-'+id);
+  macTd.innerHTML='<input type="text" id="sl-edit-mac-'+id+'" value="'+mac+'" style="width:120px;font-size:11px;font-family:monospace;padding:2px 4px;border:1px solid var(--border);border-radius:4px;background:var(--bg-tertiary);color:var(--text-primary)">';
+  ipTd.innerHTML='<input type="text" id="sl-edit-ip-'+id+'" value="'+ip+'" style="width:120px;font-size:11px;font-family:monospace;padding:2px 4px;border:1px solid var(--border);border-radius:4px;background:var(--bg-tertiary);color:var(--text-primary)">';
+  hostTd.innerHTML='<input type="text" id="sl-edit-host-'+id+'" value="'+hostname+'" style="width:100px;font-size:11px;padding:2px 4px;border:1px solid var(--border);border-radius:4px;background:var(--bg-tertiary);color:var(--text-primary)">';
+  commTd.innerHTML='<input type="text" id="sl-edit-comm-'+id+'" value="'+comment+'" style="width:120px;font-size:11px;padding:2px 4px;border:1px solid var(--border);border-radius:4px;background:var(--bg-tertiary);color:var(--text-primary)">';
+  var btnTd=row.cells[row.cells.length-1];
+  btnTd.innerHTML='<button class="btn btn-primary btn-sm" onclick="saveStaticLease('+id+')">Save</button> <button class="btn btn-secondary btn-sm" onclick="cancelEditStaticLease('+id+','+"'"+mac.replace(/'/g,"\\'")+"'"+','+"'"+ip.replace(/'/g,"\\'")+"'"+','+"'"+hostname.replace(/'/g,"\\'")+"'"+','+"'"+comment.replace(/'/g,"\\'")+"'"+')">Cancel</button> <button class="btn btn-danger btn-sm" onclick="deleteStaticLeaseNow('+id+')">&#10005;</button>';
+}
+function cancelEditStaticLease(id,mac,ip,hostname,comment){
+  document.getElementById('sl-mac-'+id).textContent=mac;
+  document.getElementById('sl-ip-'+id).textContent=ip;
+  document.getElementById('sl-hostname-'+id).textContent=hostname;
+  document.getElementById('sl-comment-'+id).textContent=comment;
+  var row=document.getElementById('static-lease-row-'+id);
+  var btnTd=row.cells[row.cells.length-1];
+  btnTd.innerHTML='<button class="btn btn-primary btn-sm" onclick="editStaticLease('+id+',\''+mac.replace(/'/g,"\\'")+'\',\''+ip.replace(/'/g,"\\'")+'\',\''+hostname.replace(/'/g,"\\'")+'\',\''+comment.replace(/'/g,"\\'")+'\')">Edit</button> <button class="btn btn-danger btn-sm" onclick="deleteStaticLeaseNow('+id+')">&#10005;</button>';
+}
+function saveStaticLease(id){
+  var mac=document.getElementById('sl-edit-mac-'+id).value.trim();
+  var ip=document.getElementById('sl-edit-ip-'+id).value.trim();
+  var hostname=document.getElementById('sl-edit-host-'+id).value.trim();
+  var comment=document.getElementById('sl-edit-comm-'+id).value.trim();
+  document.getElementById('sl-mac-'+id).textContent=mac;
+  document.getElementById('sl-ip-'+id).textContent=ip;
+  document.getElementById('sl-hostname-'+id).textContent=hostname;
+  document.getElementById('sl-comment-'+id).textContent=comment;
+  var row=document.getElementById('static-lease-row-'+id);
+  var btnTd=row.cells[row.cells.length-1];
+  btnTd.innerHTML='<button class="btn btn-primary btn-sm" onclick="editStaticLease('+id+',\''+mac.replace(/'/g,"\\'")+'\',\''+ip.replace(/'/g,"\\'")+'\',\''+hostname.replace(/'/g,"\\'")+'\',\''+comment.replace(/'/g,"\\'")+'\')">Edit</button> <button class="btn btn-danger btn-sm" onclick="deleteStaticLeaseNow('+id+')">&#10005;</button>';
+  showToast('Saving...','info');
+  fetch('/dns/dhcp/update-static-lease/'+id,{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest','Content-Type':'application/x-www-form-urlencoded'},body:'mac='+encodeURIComponent(mac)+'&ip='+encodeURIComponent(ip)+'&hostname='+encodeURIComponent(hostname)+'&comment='+encodeURIComponent(comment)})
+    .then(r=>r.json()).then(d=>{showToast(d.message||d.error||'Updated');}).catch(e=>showToast('Error: '+e,'error'));
+}
+function deleteStaticLeaseNow(id){
+  if(!confirm('Delete this static lease?'))return;
+  var row=document.getElementById('static-lease-row-'+id);
+  if(row)row.remove();
+  showToast('Deleting...','info');
+  fetch('/dns/dhcp/delete-static-lease/'+id,{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'}})
+    .then(r=>r.json()).then(d=>{showToast(d.message||'Deleted');reloadTab('clients');}).catch(e=>{showToast('Error: '+e,'error');reloadTab('dhcp');reloadTab('clients');});
+}
+function dhcpDetectActive(){
+  var iface=document.getElementById('dhcp-detect-iface').value.trim()||'eth0';
+  fetch('/dns/dhcp/detect-active',{method:'POST',body:'interface='+encodeURIComponent(iface),headers:{'X-Requested-With':'XMLHttpRequest','Content-Type':'application/x-www-form-urlencoded'}})
+    .then(r=>r.json()).then(d=>{showToast(d.message||d.error||'Done');}).catch(e=>showToast('Error: '+e.message,'error'));
+}
+
+/* Service chips for policy blocked services */
+function addServiceChip(btn,policyId){
+  var sel=btn.previousElementSibling;
+  var svc=sel.value;if(!svc)return;
+  var container=btn.closest('.form-group').querySelector('.svc-chips');
+  if(container.querySelector('input[value="'+svc+'"]'))return;
+  var span=document.createElement('span');
+  span.className='chip';
+  span.innerHTML=svc.replace(/_/g,' ')+'<button type="button" class="chip-remove" onclick="removeChip(this)" title="Remove">&times;</button><input type="hidden" name="blocked_services" value="'+svc+'">';
+  container.appendChild(span);
+  sel.value='';
+}
+function removeChip(btn){
+  btn.parentElement.remove();
+}
+
+/* === AJAX form system — no full page refresh === */
+var _toastTimer=null;
+function showToast(msg,type){
+  type=type||'ok';
+  var t=document.getElementById('dns-toast');
+  if(!t){t=document.createElement('div');t.id='dns-toast';t.style.cssText='position:fixed;top:18px;right:18px;z-index:9999;padding:12px 22px;border-radius:10px;font-size:13px;font-weight:600;color:#fff;box-shadow:0 4px 20px rgba(0,0,0,.25);transition:opacity .3s;pointer-events:none;';document.body.appendChild(t);}
+  t.textContent=msg;
+  t.style.background=type==='error'?'#ef4444':'#22c55e';
+  t.style.opacity='1';
+  clearTimeout(_toastTimer);
+  _toastTimer=setTimeout(function(){t.style.opacity='0';},3000);
+}
+
+function ajaxForm(e,form,cb){
+  if(e&&e.preventDefault)e.preventDefault();
+  var fd=new FormData(form);
+  var url=form.getAttribute('data-action')||form.getAttribute('action')||'';
+  var hashMatch=url.match(/#(\w+)$/);
+  var section=hashMatch?hashMatch[1]:'';
+  var cleanUrl=url.replace(/#\w+$/,'');
+  fetch(cleanUrl,{method:'POST',body:fd,headers:{'X-Requested-With':'XMLHttpRequest'}})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.error){showToast(d.error,'error');return;}
+      showToast(d.message||'Saved');
+      if(cb)cb(d);
+      if(section){
+        reloadTab(section);
+      } else {
+        var secMap={'rules':'rules','add-rule':'rules','delete-rule':'rules','toggle-rule':'rules','import-rules':'rules',
+          'lists':'lists','add-list':'lists','delete-list':'lists','toggle-list':'lists','update-list':'lists','update-all-lists':'lists','install-hagezi-max':'lists',
+          'add-client':'clients','delete-client':'clients','update-client':'clients','discover-clients':'clients',
+          'add-group':'groups','update-group':'groups','delete-group':'groups',
+          'add-local':'local','delete-local':'local','add-rewrite':'local','delete-rewrite':'local',
+          'add-upstream':'upstream','delete-upstream':'upstream',
+          'add-access-rule':'access','delete-access-rule':'access',
+          'add-policy':'policies','update-policy':'policies','family-schedule':'policies',
+          'global-services':'services','settings':'settings',
+          'add-scope':'dhcp','delete-scope':'dhcp','toggle-scope':'dhcp',
+          'refresh-leases':'dhcp','make-static':'dhcp',
+          'add-static-lease':'dhcp','delete-static-lease':'dhcp',
+          'add-option':'dhcp','delete-option':'dhcp',
+          'detect-active':'dhcp','validate-config':'dhcp','reload':'dhcp'};
+        for(var k in secMap){if(cleanUrl.indexOf('/dns/'+k)!==-1){section=secMap[k];break;}}
+        if(section)reloadTab(section);
+      }
+    })
+    .catch(function(ex){showToast('Network error: '+ex.message,'error');});
+  return false;
+}
+
+function ajaxPost(url,data,cb){
+  var body=null;
+  if(data&&typeof data==='object'&&!(data instanceof FormData)){
+    body=Object.keys(data).map(function(k){return encodeURIComponent(k)+'='+encodeURIComponent(data[k]);}).join('&');
+  }
+  fetch(url,{method:'POST',body:body,headers:{'X-Requested-With':'XMLHttpRequest','Content-Type':'application/x-www-form-urlencoded'}})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.error){showToast(d.error,'error');return;}
+      showToast(d.message||'Done');
+      if(cb)cb(d);
+    })
+    .catch(function(ex){showToast('Error: '+ex.message,'error');});
+}
+
+function reloadTab(tabName){
+  fetch('/dns?_partial=1')
+    .then(function(r){return r.text();})
+    .then(function(html){
+      var parser=new DOMParser();
+      var doc=parser.parseFromString(html,'text/html');
+      var newPanel=doc.getElementById('tab-'+tabName);
+      var curPanel=document.getElementById('tab-'+tabName);
+      if(newPanel&&curPanel){
+        curPanel.innerHTML=newPanel.innerHTML;
+        attachAjaxForms();
+      }
+    })
+    .catch(function(){});
+}
+
+/* Attach ajaxForm to all DNS forms on load */
+function attachAjaxForms(){
+  document.querySelectorAll('#tab-dashboard, #tab-rules, #tab-lists, #tab-queries, #tab-clients, #tab-policies, #tab-services, #tab-groups, #tab-access, #tab-local, #tab-upstream, #tab-settings, #tab-dhcp, #tab-hostnames').forEach(function(panel){
+    panel.querySelectorAll('form[method="POST"],form[action^="/dns/"]').forEach(function(form){
+      if(!form.dataset.ajaxBound){
+        form.dataset.ajaxBound='1';
+        form.addEventListener('submit',function(e){ajaxForm(e,form);});
+      }
+    });
+  });
+}
+
+var _qOffset=0,_qLimit=100,_qTimer=null,_qDebounce=null;
+function debounceLoad(){clearTimeout(_qDebounce);_qDebounce=setTimeout(loadQueries,300);}
+function loadQueries(){
+  var domain=document.getElementById('filterDomain').value.trim();
+  var client=document.getElementById('filterClient').value.trim();
+  var action=document.getElementById('filterAction').value;
+  var qtype=document.getElementById('filterQtype').value;
+  _qLimit=parseInt(document.getElementById('filterLimit').value)||100;
+  var params='limit='+_qLimit+'&offset='+_qOffset;
+  if(domain)params+='&domain='+encodeURIComponent(domain);
+  if(client)params+='&client='+encodeURIComponent(client);
+  if(action)params+='&action='+encodeURIComponent(action);
+  if(qtype)params+='&qtype='+encodeURIComponent(qtype);
+  fetch('/api/dns/queries?'+params).then(function(r){return r.json();}).then(function(data){
+    renderQueryLog(data);
+    updateQPager();
+  }).catch(function(e){document.getElementById('log-body-q').innerHTML='<tr><td colspan="7" class="empty-log" style="color:var(--danger)">Error: '+e.message+'</td></tr>';});
+}
+function renderQueryLog(data){
+  if(!data||data.length===0){
+    document.getElementById('log-body-q').innerHTML='<tr><td colspan="8" class="empty-log"><div class="icon">&#x1f4cb;</div><div>No queries found. Import logs or wait for new queries.</div></td></tr>';
+    document.getElementById('log-stats-q').innerHTML='';
+    return;
+  }
+  var allowC=0,blockC=0,fwdC=0,otherC=0;
+  var html='';
+  data.forEach(function(q){
+    var ts=q.ts?new Date(q.ts*1000).toLocaleString():'';
+    var tsShort=q.ts?new Date(q.ts*1000).toLocaleTimeString():'';
+    var actionClass={'allow':'badge-allow','block':'badge-block','forwarded':'badge-forwarded','reply':'badge-reply','query':'badge-query'}[q.action]||'badge-query';
+    var actionLabel={'allow':'Allow','block':'Blocked','forwarded':'Forwarded','reply':'Reply','query':'Query'}[q.action]||q.action;
+    if(q.action==='allow')allowC++;else if(q.action==='block')blockC++;else if(q.action==='forwarded')fwdC++;else otherC++;
+    var domain=esc(q.domain||'');
+    var domainFull=esc(q.domain||'');
+    if(domain.length>40)domain=domain.substring(0,40)+'...';
+    var client=esc(q.client_ip||'');
+    var qtype=esc(q.qtype||'A');
+    var reason=esc(q.reason||'');
+    var response=esc(q.response||'');
+    if(response.length>30)response=response.substring(0,30)+'...';
+    html+='<tr onclick="toggleQDetail('+q.id+')" style="cursor:pointer" title="Click for details">';
+    html+='<td class="time" title="'+ts+'">'+tsShort+'</td>';
+    html+='<td><span class="domain" title="'+domainFull+'">'+domain+'</span></td>';
+    html+='<td><span class="client">'+client+'</span></td>';
+    html+='<td>'+qtype+'</td>';
+    html+='<td><span class="'+actionClass+'">'+actionLabel+'</span></td>';
+    html+='<td style="font-size:11px;color:var(--text-secondary)">'+reason+'</td>';
+    html+='<td style="font-family:monospace;font-size:11px;color:var(--text-muted)">'+response+'</td>';
+    if(q.action==='block'||q.action==='Blocked'){html+='<td><button onclick="allowDomain(\''+esc(q.domain||'')+'\')" class="btn btn-sm" style="padding:2px 8px;font-size:10px;background:var(--success);color:#fff;border:none;border-radius:3px;cursor:pointer" title="Add allow rule for this domain">Allow</button></td>';}
+    else{html+='<td></td>';}
+    html+='</tr>';
+    html+='<tr id="qd-'+q.id+'" class="detail-row" style="display:none"><td colspan="8">';
+    html+='<div class="detail-grid">';
+    html+='<div class="detail-item"><div class="label">Full Domain</div><div class="value" style="font-family:monospace">'+domainFull+'</div></div>';
+    html+='<div class="detail-item"><div class="label">Client IP</div><div class="value" style="font-family:monospace">'+client+'</div></div>';
+    html+='<div class="detail-item"><div class="label">Query Type</div><div class="value">'+qtype+'</div></div>';
+    html+='<div class="detail-item"><div class="label">Action</div><div class="value"><span class="'+actionClass+'">'+actionLabel+'</span></div></div>';
+    html+='<div class="detail-item"><div class="label">Reason</div><div class="value">'+reason+'</div></div>';
+    html+='<div class="detail-item"><div class="label">Response</div><div class="value" style="font-family:monospace">'+response+'</div></div>';
+    html+='<div class="detail-item"><div class="label">Upstream</div><div class="value">'+esc(q.upstream||'-')+'</div></div>';
+    html+='<div class="detail-item"><div class="label">Latency</div><div class="value">'+(q.latency_ms?q.latency_ms+'ms':'-')+'</div></div>';
+    html+='<div class="detail-item"><div class="label">Timestamp</div><div class="value">'+ts+'</div></div>';
+    html+='<div class="detail-item"><div class="label">MAC</div><div class="value">'+esc(q.client_mac||'-')+'</div></div>';
+    html+='<div class="detail-item"><div class="label">Policy</div><div class="value">'+esc(q.policy||'-')+'</div></div>';
+    html+='<div class="detail-item"><div class="label">Rule ID</div><div class="value">'+(q.rule_id||'-')+'</div></div>';
+    html+='<div class="detail-item"><div class="label">List ID</div><div class="value">'+(q.list_id||'-')+'</div></div>';
+    html+='</div></td></tr>';
+  });
+  document.getElementById('log-body-q').innerHTML=html;
+  document.getElementById('log-stats-q').innerHTML=
+    '<span><span class="dot" style="background:#22c55e"></span> Allowed: '+allowC+'</span>'+
+    '<span><span class="dot" style="background:#ef4444"></span> Blocked: '+blockC+'</span>'+
+    '<span><span class="dot" style="background:#3b82f6"></span> Forwarded: '+fwdC+'</span>'+
+    '<span><span class="dot" style="background:#8b5cf6"></span> Other: '+otherC+'</span>'+
+    '<span>Total: '+data.length+'</span>';
+}
+function toggleQDetail(id){var r=document.getElementById('qd-'+id);if(r)r.style.display=r.style.display==='none'?'':'none';}
+function nextPageQ(){_qOffset+=_qLimit;loadQueries();}
+function prevPageQ(){if(_qOffset>0){_qOffset=Math.max(0,_qOffset-_qLimit);loadQueries();}}
+function updateQPager(){
+  document.getElementById('pageInfoQ').textContent='Page '+Math.floor(_qOffset/_qLimit+1);
+  document.getElementById('prevBtnQ').disabled=_qOffset<=0;
+}
+function importLogQ(){
+  fetch('/api/dns/import-log',{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'}}).then(function(r){return r.json();}).then(function(d){showToast(d.imported+' queries imported');setTimeout(loadQueries,500);}).catch(function(e){showToast('Error: '+e.message,'error');});
+}
+function startAutoRefreshQ(){
+  if(_qTimer)clearInterval(_qTimer);
+  if(document.getElementById('autoRefreshQ').checked){_qTimer=setInterval(loadQueries,5000);}
+}
+function esc(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+var _clientSvcs={};
+{% for c in clients %}_clientSvcs[{{ c.id }}]=JSON.parse({{ (c.blocked_services_json or '[]')|tojson }});{% endfor %}
+function saveClient(cid){
+  var row=document.getElementById('client-row-'+cid);if(!row)return;
+  var name=row.querySelector('[data-field="name"]').value.trim();
+  var policyId=row.querySelector('[data-field="policy_id"]').value;
+  var upstreams=row.querySelector('[data-field="upstreams"]').value.trim();
+  var svcs=_clientSvcs[cid]||[];
+  var data={name:name,policy_id:policyId,upstreams:upstreams,blocked_services:svcs.join(',')};
+  showToast('Saving...','info');
+  fetch('/dns/update-client/'+cid,{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest','Content-Type':'application/x-www-form-urlencoded'},body:Object.keys(data).map(function(k){return encodeURIComponent(k)+'='+encodeURIComponent(data[k]);}).join('&')})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.error){showToast(d.error,'error');return;}
+      showToast(d.message||'Saved');
+    })
+    .catch(function(ex){showToast('Error: '+ex.message,'error');});
+}
+function addClientSvcChip(cid,svc){
+  if(!svc)return;
+  if(!_clientSvcs[cid])_clientSvcs[cid]=[];
+  if(_clientSvcs[cid].indexOf(svc)!==-1)return;
+  _clientSvcs[cid].push(svc);
+  var container=document.querySelector('.svc-chips-'+cid);if(!container)return;
+  var span=document.createElement('span');span.className='chip';
+  span.innerHTML=svc.replace(/_/g,' ')+'<button type="button" class="chip-remove" onclick="removeClientSvcChip('+cid+',\''+svc+'\')" title="Remove">&times;</button>';
+  container.appendChild(span);
+}
+function removeClientSvcChip(cid,svc){
+  if(!_clientSvcs[cid])_clientSvcs[cid]=[];
+  var idx=_clientSvcs[cid].indexOf(svc);if(idx!==-1)_clientSvcs[cid].splice(idx,1);
+  var container=document.querySelector('.svc-chips-'+cid);if(!container)return;
+  var chips=container.querySelectorAll('.chip');
+  chips.forEach(function(chip){if(chip.textContent.trim().replace(/\u00d7/,'').trim().replace(/ /g,'_').toLowerCase()===svc.toLowerCase()){chip.remove();}});
+}
+function toggleDhcpBind(cid,checked){
+  var cb=event.target;
+  showToast(checked?'Binding...':'Unbinding...','info');
+  var url=checked?'/dns/dhcp/bind-client/'+cid:'/dns/dhcp/unbind-client/'+cid;
+  fetch(url,{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'}})
+    .then(r=>r.json()).then(d=>{
+      if(d.ok){showToast(d.message||(checked?'Bound':'Unbound'));reloadTab('dhcp');}
+      else{showToast(d.error||'Error','error');cb.checked=!checked;}
+    }).catch(e=>{showToast('Error: '+e,'error');cb.checked=!checked;});
+}
+function allowDomain(domain){
+  if(!domain||!confirm('Add allow rule for: '+domain+'?'))return;
+  fetch('/api/dns/rules',{method:'POST',headers:{'Content-Type':'application/json','X-Requested-With':'XMLHttpRequest'},body:JSON.stringify({type:'exact',value:domain,action:'allow',comment:'Allowed from query log'})}).then(function(r){return r.json();}).then(function(d){
+    if(d.ok){showToast('Allow rule added for '+domain);loadQueries();}else{showToast(d.error||'Failed to add rule','error');}
+  }).catch(function(e){showToast('Error: '+e,'error');});
+}
+function loadDnsCharts(){
+  if(typeof Chart==='undefined')return;
+  fetch('/api/dns/stats?hours=24').then(function(r){return r.json();}).then(function(data){
+    var textColor=getComputedStyle(document.documentElement).getPropertyValue('--text-secondary').trim()||'#8b949e';
+    var gridColor=getComputedStyle(document.documentElement).getPropertyValue('--border').trim()||'#30363d';
+    var hourly=data.hourly||[];
+    var labels=hourly.map(function(h){return new Date((h.hour||0)*1000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});});
+    var totals=hourly.map(function(h){return h.total||0;});
+    var blocked=hourly.map(function(h){return h.blocked||0;});
+    var permitted=totals.map(function(t,i){return t-blocked[i];});
+    var hctx=document.getElementById('dnsHourlyChart');
+    if(hctx){new Chart(hctx,{type:'bar',data:{labels:labels,datasets:[{label:'Permitted',data:permitted,backgroundColor:'rgba(0,166,90,.7)',borderRadius:2},{label:'Blocked',data:blocked,backgroundColor:'rgba(221,75,57,.7)',borderRadius:2}]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'nearest',axis:'x'},plugins:{legend:{labels:{color:textColor,usePointStyle:true,pointStyle:'rectRounded'}}},scales:{x:{stacked:true,ticks:{color:textColor,maxTicksLimit:12},grid:{color:gridColor},border:{display:false}},y:{stacked:true,beginAtZero:true,ticks:{color:textColor,precision:0},grid:{color:gridColor},border:{display:false}}}}});}
+    var piColors=['#3b82f6','#22c55e','#f59e0b','#8b5cf6','#ef4444','#06b6d4','#ec4899','#f97316','#14b8a6','#e11d48','#84cc16','#a855f7','#0ea5e9','#eab308','#6366f1','#fb923c'];
+    var qtypes=data.qtype_breakdown||[];
+    var tctx=document.getElementById('dnsTypeChart');
+    if(tctx&&qtypes.length){new Chart(tctx,{type:'doughnut',data:{labels:qtypes.map(function(q){return q.qtype||'OTHER';}),datasets:[{data:qtypes.map(function(q){return q.cnt||0;}),backgroundColor:piColors.slice(0,qtypes.length),borderColor:getComputedStyle(document.querySelector('.panel-card')||document.body).backgroundColor,borderWidth:2,hoverOffset:8}]},options:{responsive:true,maintainAspectRatio:true,cutout:'62%',plugins:{legend:{display:false},tooltip:{callbacks:{label:function(ctx){var total=ctx.dataset.data.reduce(function(a,b){return a+b;},0);return ctx.label+': '+ctx.parsed+' ('+Math.round(ctx.parsed/total*100)+'%)';}}}},layout:{padding:10}}});var legendEl=document.getElementById('query-types-legend');if(legendEl){legendEl.innerHTML=qtypes.map(function(q,i){return '<div style="display:flex;align-items:center;gap:6px;margin:2px 0"><span style="width:10px;height:10px;border-radius:50%;background:'+piColors[i%piColors.length]+';flex-shrink:0"></span><span style="color:'+textColor+';font-weight:500">'+(q.qtype||'OTHER')+'</span><span style="color:var(--text-muted);margin-left:auto">'+q.cnt+'</span></div>';}).join('');}}
+    var upstreams=data.upstream_breakdown||[];
+    var uctx=document.getElementById('dnsUpstreamChart');
+    if(uctx&&upstreams.length){new Chart(uctx,{type:'doughnut',data:{labels:upstreams.map(function(u){return u.upstream||'Unknown';}),datasets:[{data:upstreams.map(function(u){return u.cnt||0;}),backgroundColor:piColors.slice(0,upstreams.length),borderColor:getComputedStyle(document.querySelector('.panel-card')||document.body).backgroundColor,borderWidth:2,hoverOffset:8}]},options:{responsive:true,maintainAspectRatio:true,cutout:'62%',plugins:{legend:{display:false},tooltip:{callbacks:{label:function(ctx){var total=ctx.dataset.data.reduce(function(a,b){return a+b;},0);return ctx.label+': '+ctx.parsed+' ('+Math.round(ctx.parsed/total*100)+'%)';}}}},layout:{padding:10}}});var ulegendEl=document.getElementById('upstream-legend');if(ulegendEl){ulegendEl.innerHTML=upstreams.map(function(u,i){return '<div style="display:flex;align-items:center;gap:6px;margin:2px 0"><span style="width:10px;height:10px;border-radius:50%;background:'+piColors[i%piColors.length]+';flex-shrink:0"></span><span style="color:'+textColor+';font-weight:500">'+(u.upstream||'Unknown')+'</span><span style="color:var(--text-muted);margin-left:auto">'+u.cnt+'</span></div>';}).join('');}}
+
+    var tlCtx=document.getElementById('dnsTotalLineChart');
+    if(tlCtx&&hourly.length){
+      var tlLabels=hourly.map(function(h){return new Date((h.hour||0)*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});});
+      var tlTotals=hourly.map(function(h){return h.total||0;});
+      var tlBlocked=hourly.map(function(h){return h.blocked||0;});
+      new Chart(tlCtx,{type:'line',data:{labels:tlLabels,datasets:[{label:'Total',data:tlTotals,borderColor:'#3b82f6',backgroundColor:'rgba(59,130,246,0.1)',fill:true,tension:0.3,pointRadius:2,pointHoverRadius:4,borderWidth:2},{label:'Blocked',data:tlBlocked,borderColor:'#ef4444',backgroundColor:'rgba(239,68,68,0.05)',fill:true,tension:0.3,pointRadius:2,pointHoverRadius:4,borderWidth:2}]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'nearest',axis:'x'},plugins:{legend:{labels:{color:textColor,usePointStyle:true,pointStyle:'circle'}}},scales:{x:{ticks:{color:textColor,maxTicksLimit:12,maxRotation:0},grid:{color:gridColor},border:{display:false}},y:{beginAtZero:true,ticks:{color:textColor,precision:0},grid:{color:gridColor},border:{display:false}}}}});
+    }
+
+    var ccCtx=document.getElementById('dnsClientChart');
+    if(ccCtx){
+      var clients=data.top_clients||[];
+      var ccLabels=clients.slice(0,8).map(function(c){return c.client_ip||c.client_name||c.name||'Unknown';});
+      var ccData=clients.slice(0,8).map(function(c){return c.cnt||0;});
+      var ccBlocked=clients.slice(0,8).map(function(c){return c.blocked||0;});
+      new Chart(ccCtx,{type:'bar',data:{labels:ccLabels,datasets:[{label:'Queries',data:ccData,backgroundColor:'rgba(59,130,246,0.7)',borderRadius:2},{label:'Blocked',data:ccBlocked,backgroundColor:'rgba(239,68,68,0.7)',borderRadius:2}]},options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',plugins:{legend:{labels:{color:textColor,usePointStyle:true,pointStyle:'rectRounded'}}},scales:{x:{stacked:true,beginAtZero:true,ticks:{color:textColor,precision:0},grid:{color:gridColor},border:{display:false}},y:{stacked:true,ticks:{color:textColor,font:{size:10}},grid:{display:false},border:{display:false}}}}});
+    }
+   }).catch(function(){});
+ }
+
+var _topStatsInterval=null;
+function refreshTopStats(){
+  var period=document.getElementById('top-stats-period');
+  var p=period?period.value:'1m';
+  fetch('/api/dns/top-stats?period='+p).then(function(r){return r.json()}).then(function(d){
+    var totalQ=d.queries.last_24h||d.queries.last_1h||1;
+    var blockedQ=d.queries.blocked_24h||d.queries.blocked_1h||1;
+    renderTopList('top-permitted',d.top_domains||[],totalQ,'pi-bar-green');
+    renderTopList('top-blocked',d.top_blocked||[],blockedQ,'pi-bar-red');
+    renderTopClients('top-clients-total',d.top_clients||[],totalQ,'pi-bar-green');
+    renderTopClients('top-clients-blocked',d.top_blocked_clients||[],blockedQ,'pi-bar-red');
+  }).catch(function(){});
+}
+function renderTopList(id,items,total,barClass){
+  var el=document.getElementById(id);
+  if(!el)return;
+  var h='';
+  if(!items.length)h='<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px">No data</div>';
+  else items.forEach(function(d){
+    var pct=total>0?(d.cnt/total*100).toFixed(1):0;
+    h+='<div class="pi-top-item"><span class="pi-top-name" title="'+escHtml(d.domain||'')+'">'+escHtml(d.domain||'')+'</span><span class="pi-top-bar '+barClass+'"><div class="pi-progress"><div class="pi-progress-fill" style="width:'+pct+'%"></div></div></span><span class="pi-top-cnt">'+d.cnt+'</span></div>';
+  });
+  el.innerHTML=h;
+}
+function renderTopClients(id,items,total,barClass){
+  var el=document.getElementById(id);
+  if(!el)return;
+  var h='';
+  if(!items.length)h='<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px">No data</div>';
+  else items.forEach(function(c){
+    var pct=total>0?(c.cnt/total*100).toFixed(1):0;
+    var name=c.hostname||c.client_ip||'';
+    h+='<div class="pi-top-item"><span class="pi-top-name" title="'+escHtml(c.client_ip||'')+'">'+escHtml(name)+'</span><span class="pi-top-bar '+barClass+'"><div class="pi-progress"><div class="pi-progress-fill" style="width:'+pct+'%"></div></div></span><span class="pi-top-cnt">'+c.cnt+'</span></div>';
+  });
+  el.innerHTML=h;
+}
+function escHtml(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+
+document.addEventListener('DOMContentLoaded',function(){activateInitialTab();loadDnsCharts();attachAjaxForms();loadQueries();startAutoRefreshQ();refreshTopStats();_topStatsInterval=setInterval(refreshTopStats,60000);});
+ function toggleRule(id,btn){
+   fetch('/dns/toggle-rule/'+id,{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'}}).then(function(r){return r.json();}).then(function(d){
+     showToast(d.message||'Toggled');
+     var isOn=btn.textContent.trim()==='ON';
+     btn.textContent=isOn?'OFF':'ON';
+     btn.className='btn btn-sm '+(isOn?'btn-secondary':'btn-primary');
+   }).catch(function(){showToast('Error toggling rule','error');});
+ }
+ function deleteRule(id,btn){
+   if(!confirm('Delete this rule?'))return;
+   fetch('/dns/delete-rule/'+id,{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'}}).then(function(r){return r.json();}).then(function(d){
+     showToast(d.message||'Deleted');
+     var row=btn.closest('tr');
+     if(row)row.remove();
+   }).catch(function(){showToast('Error deleting rule','error');});
+ }
+ function toggleList(id,btn){
+   fetch('/dns/toggle-list/'+id,{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'}}).then(function(r){return r.json();}).then(function(d){
+     showToast(d.message||'Toggled');
+     var isOn=btn.textContent.trim()==='ON';
+     btn.textContent=isOn?'OFF':'ON';
+     btn.className='btn btn-sm '+(isOn?'btn-secondary':'btn-primary');
+   }).catch(function(){showToast('Error toggling list','error');});
+ }
+  function deleteList(id,btn){
+    if(!confirm('Delete this list and all its rules?'))return;
+    fetch('/dns/delete-list/'+id,{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'}}).then(function(r){return r.json();}).then(function(d){
+      showToast(d.message||'Deleted');
+      var item=btn.closest('.list-item');
+      if(item)item.remove();
+    }).catch(function(){showToast('Error deleting list','error');});
+  }
+
+  function toggleGroup(id,btn){
+    fetch('/dns/toggle-group/'+id,{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'}}).then(function(r){return r.json();}).then(function(d){
+      showToast(d.message||'Toggled');
+      var isOn=btn.textContent.trim()==='ON';
+      btn.textContent=isOn?'OFF':'ON';
+      btn.className='btn btn-sm '+(isOn?'btn-secondary':'btn-primary');
+    }).catch(function(){showToast('Error toggling group','error');});
+  }
+
+  function deleteGroup(id,btn){
+    if(!confirm('Delete this group?'))return;
+    fetch('/dns/delete-group/'+id,{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'}}).then(function(r){return r.json();}).then(function(d){
+      showToast(d.message||'Deleted');
+      var card=btn.closest('.group-card');
+      if(card)card.remove();
+    }).catch(function(){showToast('Error deleting group','error');});
+  }
+
+  function removeGroupClient(groupId,clientId,btn){
+    fetch('/dns/group/'+groupId+'/remove-client/'+clientId,{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'}}).then(function(r){return r.json();}).then(function(d){
+      showToast(d.message||'Removed');
+      var pill=btn.closest('.member-pill');
+      if(pill)pill.remove();
+    }).catch(function(){showToast('Error removing client','error');});
+  }
+
+  function removeGroupRule(groupId,ruleId,btn){
+    fetch('/dns/group/'+groupId+'/remove-rule/'+ruleId,{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'}}).then(function(r){return r.json();}).then(function(d){
+      showToast(d.message||'Removed');
+      var pill=btn.closest('.member-pill');
+      if(pill)pill.remove();
+    }).catch(function(){showToast('Error removing rule','error');});
+  }
+
+  function removeGroupList(groupId,listId,btn){
+    fetch('/dns/group/'+groupId+'/remove-list/'+listId,{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'}}).then(function(r){return r.json();}).then(function(d){
+      showToast(d.message||'Removed');
+      var pill=btn.closest('.member-pill');
+      if(pill)pill.remove();
+    }).catch(function(){showToast('Error removing list','error');});
+  }
+
+  document.addEventListener('submit',function(e){
+    var form=e.target;
+    // Add Group form
+    if(form.id==='form-add-group'){e.preventDefault();var fd=new FormData(form);fetch('/dns/add-group',{method:'POST',body:fd,headers:{'X-Requested-With':'XMLHttpRequest'}}).then(function(r){return r.json();}).then(function(d){showToast(d.message||'Created');document.getElementById('add-group-form').style.display='none';setTimeout(function(){reloadTab('groups');},800);}).catch(function(){showToast('Error creating group','error');});}
+    // Update Group form
+    if(form.classList.contains('group-update-form')){e.preventDefault();var gid=form.getAttribute('data-group-id');var fd=new FormData(form);fetch('/dns/update-group/'+gid,{method:'POST',body:fd,headers:{'X-Requested-With':'XMLHttpRequest'}}).then(function(r){return r.json();}).then(function(d){showToast(d.message||'Saved');}).catch(function(){showToast('Error saving group','error');});}
+    // Add client to group
+    if(form.classList.contains('group-add-client-form')){e.preventDefault();var gid=form.getAttribute('data-group-id');var fd=new FormData(form);fetch('/dns/group/'+gid+'/add-client',{method:'POST',body:fd,headers:{'X-Requested-With':'XMLHttpRequest'}}).then(function(r){return r.json();}).then(function(d){showToast(d.message||'Added');form.reset();setTimeout(function(){reloadTab('groups');},800);}).catch(function(){showToast('Error adding client','error');});}
+    // Add rule to group
+    if(form.classList.contains('group-add-rule-form')){e.preventDefault();var gid=form.getAttribute('data-group-id');var fd=new FormData(form);fetch('/dns/group/'+gid+'/add-rule',{method:'POST',body:fd,headers:{'X-Requested-With':'XMLHttpRequest'}}).then(function(r){return r.json();}).then(function(d){showToast(d.message||'Added');form.reset();setTimeout(function(){reloadTab('groups');},800);}).catch(function(){showToast('Error adding rule','error');});}
+    // Add list to group
+     if(form.classList.contains('group-add-list-form')){e.preventDefault();var gid=form.getAttribute('data-group-id');var fd=new FormData(form);fetch('/dns/group/'+gid+'/add-list',{method:'POST',body:fd,headers:{'X-Requested-With':'XMLHttpRequest'}}).then(function(r){return r.json();}).then(function(d){showToast(d.message||'Added');form.reset();setTimeout(function(){reloadTab('groups');},800);}).catch(function(){showToast('Error adding list','error');});}
+    // Add Policy
+    if(form.id==='form-add-policy'){e.preventDefault();var fd=new FormData(form);fetch('/dns/add-policy',{method:'POST',body:fd,headers:{'X-Requested-With':'XMLHttpRequest'}}).then(function(r){return r.json();}).then(function(d){showToast(d.message||'Created');form.reset();setTimeout(function(){reloadTab('policies');if(d.new_id){setTimeout(function(){var body=document.getElementById('policy-body-'+d.new_id);if(body)body.style.display='';var icon=document.getElementById('collapse-icon-'+d.new_id);if(icon)icon.innerHTML='&#9650;';},600);}},800);}).catch(function(){showToast('Error creating policy','error');});}
+    // Update Policy
+    if(form.classList.contains('policy-update-form')){e.preventDefault();var pid=form.getAttribute('data-policy-id');var fd=new FormData(form);fetch('/dns/update-policy/'+pid,{method:'POST',body:fd,headers:{'X-Requested-With':'XMLHttpRequest'}}).then(function(r){return r.json();}).then(function(d){showToast(d.message||'Saved');}).catch(function(){showToast('Error saving policy','error');});}
+    // Family Schedule
+    if(form.id==='form-family-schedule'){e.preventDefault();var fd=new FormData(form);fetch('/dns/family-schedule',{method:'POST',body:fd,headers:{'X-Requested-With':'XMLHttpRequest'}}).then(function(r){return r.json();}).then(function(d){showToast(d.message||'Saved');}).catch(function(){showToast('Error saving schedule','error');});}
+    // Global Services
+    // Add Custom Service
+    if(form.id==='form-add-service'){e.preventDefault();var fd=new FormData(form);fetch('/dns/add-custom-service',{method:'POST',body:fd,headers:{'X-Requested-With':'XMLHttpRequest'}}).then(function(r){return r.json();}).then(function(d){showToast(d.message||'Created');form.reset();document.getElementById('add-service-form').style.display='none';setTimeout(function(){reloadTab('services');},800);}).catch(function(){showToast('Error creating service','error');});}
+    // Add domain to custom service
+    if(form.classList.contains('svc-add-domain-form')){e.preventDefault();var svcId=form.getAttribute('data-svc-id');var fd=new FormData(form);fetch('/dns/service/'+svcId+'/add-domain',{method:'POST',body:fd,headers:{'X-Requested-With':'XMLHttpRequest'}}).then(function(r){return r.json();}).then(function(d){showToast(d.message||'Added');form.reset();setTimeout(function(){reloadTab('services');},800);}).catch(function(){showToast('Error adding domain','error');});}
+  });
+
+  function togglePolicyCard(id){
+    var body=document.getElementById('policy-body-'+id);
+    var icon=document.getElementById('collapse-icon-'+id);
+    if(body.style.display==='none'){body.style.display='';icon.innerHTML='&#9650;';}else{body.style.display='none';icon.innerHTML='&#9660;';}
+  }
+
+  function togglePolicy(id,btn){
+    fetch('/dns/toggle-policy/'+id,{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'}}).then(function(r){return r.json();}).then(function(d){
+      showToast(d.message||'Toggled');
+      var isOn=btn.textContent.trim()==='ON';
+      btn.textContent=isOn?'OFF':'ON';
+      btn.className='btn btn-sm '+(isOn?'btn-secondary':'btn-primary');
+    }).catch(function(){showToast('Error toggling policy','error');});
+  }
+
+  function deletePolicy(id,btn){
+    if(!confirm('Delete this policy?'))return;
+    fetch('/dns/delete-policy/'+id,{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'}}).then(function(r){return r.json();}).then(function(d){
+      showToast(d.message||'Deleted');
+      var card=btn.closest('.policy-card');
+      if(card)card.remove();
+    }).catch(function(){showToast('Error deleting policy','error');});
+  }
+
+  function deleteAccessRule(id,btn){
+    if(!confirm('Delete this rule?'))return;
+    fetch('/dns/delete-access-rule/'+id,{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'}}).then(function(r){return r.json();}).then(function(d){
+      showToast(d.message||'Deleted');
+      var row=btn.closest('tr');
+      if(row)row.remove();
+    }).catch(function(){showToast('Error deleting rule','error');});
+  }
+
+  function deleteLocalRecord(id,btn){
+    if(!confirm('Delete this record?'))return;
+    fetch('/dns/delete-local/'+id,{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'}}).then(function(r){return r.json();}).then(function(d){
+      showToast(d.message||'Deleted');
+      var card=btn.closest('.local-record')||btn.parentElement;
+      if(card)card.remove();
+    }).catch(function(){showToast('Error deleting record','error');});
+  }
+
+  function deleteRewrite(id,btn){
+    if(!confirm('Delete this rewrite?'))return;
+    fetch('/dns/delete-rewrite/'+id,{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'}}).then(function(r){return r.json();}).then(function(d){
+      showToast(d.message||'Deleted');
+      var card=btn.closest('.rewrite-card')||btn.parentElement;
+      if(card)card.remove();
+    }).catch(function(){showToast('Error deleting rewrite','error');});
+  }
+
+  function deleteUpstream(id,btn){
+    if(!confirm('Delete this upstream?'))return;
+    fetch('/dns/delete-upstream/'+id,{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'}}).then(function(r){return r.json();}).then(function(d){
+      showToast(d.message||'Deleted');
+      var row=btn.closest('tr');
+      if(row)row.remove();
+    }).catch(function(){showToast('Error deleting upstream','error');});
+  }
+
+  function toggleGlobalService(svc,btn){
+    var isOn=btn.textContent.trim()==='ON';
+    fetch('/dns/toggle-global-service',{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'},body:'service='+encodeURIComponent(svc)+'&enabled='+(isOn?'0':'1')}).then(function(r){return r.json();}).then(function(d){
+      showToast(d.message||'Toggled');
+      btn.textContent=isOn?'OFF':'ON';
+      btn.className='btn btn-sm '+(isOn?'btn-secondary':'btn-primary');
+    }).catch(function(){showToast('Error toggling service','error');});
+  }
+
+  function deleteCustomService(id,btn){
+    if(!confirm('Delete this custom service?'))return;
+    fetch('/dns/delete-custom-service/'+id,{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'}}).then(function(r){return r.json();}).then(function(d){
+      showToast(d.message||'Deleted');
+      var card=btn.closest('.service-card');
+      if(card)card.remove();
+    }).catch(function(){showToast('Error deleting service','error');});
+  }
+
+  function removeServiceDomain(svcId,domain,btn){
+    fetch('/dns/service/'+svcId+'/remove-domain',{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'},body:'domain='+encodeURIComponent(domain)}).then(function(r){return r.json();}).then(function(d){
+      showToast(d.message||'Removed');
+      var chip=btn.closest('.chip');
+      if(chip)chip.remove();
+    }).catch(function(){showToast('Error removing domain','error');});
+  }
+
+  function toggleHostnameTrack(clientId,enabled){
+    var fwSel=document.querySelector('.client-fw-action[data-cid="'+clientId+'"]');
+    var fwAction=fwSel?fwSel.value:'';
+    fetch('/api/hostname-rules/clients/'+clientId+'/track',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({track_hostname:enabled,firewall_action:fwAction})}).then(function(r){return r.json()}).then(function(d){
+      showToast(d.message||'Updated');
+      if(fwSel)fwSel.disabled=!enabled;
+    }).catch(function(){showToast('Error updating hostname tracking','error')});
+  }
+
+  document.querySelectorAll('.client-fw-action').forEach(function(sel){
+    sel.addEventListener('change',function(){
+      var cid=this.dataset.cid;
+      var checked=document.querySelector('input[onchange*="toggleHostnameTrack('+cid+')"]');
+      if(checked&&checked.checked){
+        fetch('/api/hostname-rules/clients/'+cid+'/track',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({track_hostname:true,firewall_action:this.value})}).then(function(r){return r.json()}).then(function(d){showToast(d.message||'Firewall action updated')}).catch(function(){showToast('Error','error')});
+      }
+    });
+  });
+
+  function addHostnameRule(form){
+    var fd=new FormData(form);
+    var data={hostname:fd.get('hostname'),rule_type:fd.get('rule_type'),firewall_action:fd.get('firewall_action'),comment:fd.get('comment')||''};
+    var policyId=fd.get('dns_policy_id');
+    if(policyId)data.dns_policy_id=policyId;
+    fetch('/api/hostname-rules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}).then(function(r){return r.json()}).then(function(d){
+      if(d.ok){showToast('Rule added');document.getElementById('add-hostname-form').style.display='none';reloadTab('hostnames')}
+      else showToast(d.error||'Error','error');
+    }).catch(function(){showToast('Error adding rule','error')});
+  }
+
+  function deleteHostnameRule(hostname){
+    fetch('/api/hostname-rules/'+encodeURIComponent(hostname),{method:'DELETE',headers:{'X-Requested-With':'XMLHttpRequest'}}).then(function(r){return r.json()}).then(function(d){showToast(d.message||'Deleted');reloadTab('hostnames')}).catch(function(){showToast('Error deleting rule','error')});
+  }
+
+  function toggleHostnameRule(hostname,enable){
+    fetch('/api/hostname-rules/'+encodeURIComponent(hostname)+'/toggle',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:enable})}).then(function(r){return r.json()}).then(function(d){showToast(d.message||'Toggled');reloadTab('hostnames')}).catch(function(){showToast('Error','error')});
+  }
+
+  function resolveAllHostnames(){
+    fetch('/api/hostname-rules/resolve',{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'}}).then(function(r){return r.json()}).then(function(d){showToast('Resolved '+Object.keys(d.results||{}).length+' hostnames');reloadTab('hostnames')}).catch(function(){showToast('Error resolving','error')});
+  }
+</script>
+{% endblock %}

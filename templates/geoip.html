@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+{% block title %}GeoIP — AegisGate{% endblock %}
+{% block content %}
+<style>
+.geoip-page{display:flex;flex-direction:column;gap:14px;min-height:calc(100vh - 32px)}
+.geoip-tab-content{display:none;flex:1}
+.geoip-tab-content.active{display:flex;flex-direction:column}
+.geoip-tab-content .panel-card{flex:1;display:flex;flex-direction:column}
+.geoip-tab-content .tbl-wrap{flex:1;overflow-y:auto;max-height:none}
+.pagination{display:flex;gap:6px;align-items:center;margin-top:12px}
+.pagination .btn{font-size:12px}
+.pagination .page-info{color:var(--text-muted);font-size:12px;font-weight:700}
+.search-input{padding:9px 14px;border:1px solid var(--border);border-radius:10px;background:var(--bg-primary);color:var(--text-primary);font-size:13px;width:260px;transition:border-color .2s}
+.search-input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 14%,transparent)}
+</style>
+
+<div class="geoip-page">
+<section class="page-hero">
+    <div class="page-hero-top">
+        <div>
+            <div class="page-kicker">Geographic threat intelligence</div>
+            <div class="page-title">GeoIP &amp; ASN</div>
+            <div class="page-subtitle">Geographic distribution of blocked IPs, autonomous system analysis and threat origin tracking across all firewall drop events.</div>
+        </div>
+    </div>
+    <div class="kpi-grid">
+        <div class="kpi-card accent"><div class="kpi-label">Countries</div><div class="kpi-value">{{ total_countries }}</div><div class="kpi-note">Threat origins</div></div>
+        <div class="kpi-card"><div class="kpi-label">ASNs</div><div class="kpi-value">{{ total_asns }}</div><div class="kpi-note">Networks</div></div>
+        <div class="kpi-card danger"><div class="kpi-label">Unique IPs</div><div class="kpi-value">{{ ips|length }}</div><div class="kpi-note">Banned total</div></div>
+    </div>
+</section>
+
+<section class="page-toolbar">
+    <div class="page-tabs">
+        <button class="page-tab active" onclick="switchGeoTab('countries',this)">Countries</button>
+        <button class="page-tab" onclick="switchGeoTab('asns',this)">ASNs</button>
+        <button class="page-tab" onclick="switchGeoTab('banned',this)">Banned IPs</button>
+    </div>
+    <div class="page-actions">
+        <form method="get" action="/geoip" style="display:inline-flex;gap:6px;align-items:center">
+            <input type="text" name="q" value="{{ query|default('', true) }}" placeholder="Search IP..." class="search-input">
+            <button type="submit" class="mod-action-btn primary">Search</button>
+            {% if query %}<a href="/geoip" class="mod-action-btn ghost">Clear</a>{% endif %}
+        </form>
+        <a href="/api/geoip" class="mod-action-btn ghost">API</a>
+    </div>
+</section>
+
+<div id="geoip-tab-countries" class="geoip-tab-content active">
+    <div class="panel-card">
+        <div class="panel-card-title">Countries <span>Page {{ cpage }} of {{ cpage_total }}, {{ total_countries }} total</span></div>
+        <div class="tbl-wrap">
+            <table class="mod-table">
+                <thead><tr><th>Flag</th><th>Country</th><th>Code</th><th>Count</th><th>%</th></tr></thead>
+                <tbody>
+                {% for code, data in country_stats %}
+                    <tr>
+                        <td style="font-size:18px;">{{ flags.get(code, '&#x1f3f3;') }}</td>
+                        <td>{{ data.name }}</td>
+                        <td><span class="mod-badge blue">{{ code }}</span></td>
+                        <td style="font-weight:800;font-variant-numeric:tabular-nums">{{ data.count }}</td>
+                        <td>{{ "%.1f"|format(data.count / (ips|length if ips else 1) * 100) }}%</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% if cpage_total > 1 %}
+        <div class="pagination">
+            {% if cpage > 1 %}<a href="/geoip?cpage={{ cpage - 1 }}{% if query %}&q={{ query }}{% endif %}" class="btn">&laquo; Prev</a>{% endif %}
+            <span class="page-info">Page {{ cpage }} of {{ cpage_total }}</span>
+            {% if cpage < cpage_total %}<a href="/geoip?cpage={{ cpage + 1 }}{% if query %}&q={{ query }}{% endif %}" class="btn">Next &raquo;</a>{% endif %}
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<div id="geoip-tab-asns" class="geoip-tab-content">
+    <div class="panel-card">
+        <div class="panel-card-title">Top ASNs <span>Page {{ apage }} of {{ apage_total }}, {{ total_asns }} total</span></div>
+        <div class="tbl-wrap">
+            <table class="mod-table">
+                <thead><tr><th>ASN</th><th>Organization</th><th>IPs</th><th>Count</th><th>%</th></tr></thead>
+                <tbody>
+                {% for key, data in asn_stats %}
+                    <tr>
+                        <td><span class="mod-badge purple">AS{{ data.asn or '&mdash;' }}</span></td>
+                        <td>{{ data.org or 'Unknown' }}</td>
+                        <td class="mono" style="font-size:11px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ data.ips | join(', ') }}">{{ data.ips[:5] | join(', ') }}{% if data.ips | length > 5 %}... (+{{ data.ips | length - 5 }}){% endif %}</td>
+                        <td style="font-weight:800;font-variant-numeric:tabular-nums">{{ data.count }}</td>
+                        <td>{{ "%.1f"|format(data.count / (ips|length if ips else 1) * 100) }}%</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% if apage_total > 1 %}
+        <div class="pagination">
+            {% if apage > 1 %}<a href="/geoip?apage={{ apage - 1 }}{% if query %}&q={{ query }}{% endif %}" class="btn">&laquo; Prev</a>{% endif %}
+            <span class="page-info">Page {{ apage }} of {{ apage_total }}</span>
+            {% if apage < apage_total %}<a href="/geoip?apage={{ apage + 1 }}{% if query %}&q={{ query }}{% endif %}" class="btn">Next &raquo;</a>{% endif %}
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<div id="geoip-tab-banned" class="geoip-tab-content">
+    <div class="panel-card">
+        <div class="panel-card-title">Banned IPs <span>Page {{ page }} of {{ total_pages }}, {{ ips|length }} total</span></div>
+        <div class="tbl-wrap">
+            <table class="mod-table">
+                <thead><tr><th>Flag</th><th>IP</th><th>Country</th><th>City</th><th>ASN</th><th>Organization</th></tr></thead>
+                <tbody>
+                {% for info in ip_details %}
+                    <tr>
+                        <td style="font-size:16px;">{{ flags.get(info.country, '&#x1f3f3;') }}</td>
+                        <td class="mono" style="font-size:11px;">{{ info.ip }}</td>
+                        <td>{{ info.country_name or '&mdash;' }}</td>
+                        <td>{{ info.city or '&mdash;' }}</td>
+                        <td><span class="mod-badge purple">AS{{ info.asn or '&mdash;' }}</span></td>
+                        <td style="color:var(--text-secondary);font-size:11px;">{{ info.asn_org or '&mdash;' }}</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% if total_pages > 1 %}
+        <div class="pagination">
+            {% if page > 1 %}<a href="/geoip?page={{ page - 1 }}{% if query %}&q={{ query }}{% endif %}" class="btn">&laquo; Prev</a>{% endif %}
+            <span class="page-info">Page {{ page }} of {{ total_pages }}</span>
+            {% if page < total_pages %}<a href="/geoip?page={{ page + 1 }}{% if query %}&q={{ query }}{% endif %}" class="btn">Next &raquo;</a>{% endif %}
+        </div>
+        {% endif %}
+    </div>
+</div>
+</div>
+
+<script>
+function switchGeoTab(name,btn){document.querySelectorAll('.geoip-tab-content').forEach(function(t){t.classList.remove('active')});document.querySelectorAll('.page-tab').forEach(function(b){b.classList.remove('active')});document.getElementById('geoip-tab-'+name).classList.add('active');if(btn)btn.classList.add('active')}
+</script>
+{% endblock %}

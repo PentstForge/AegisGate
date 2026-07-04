@@ -1,0 +1,393 @@
+{% extends "base.html" %}
+{% block title %}Protection Rules — AegisGate{% endblock %}
+{% block page_title %}Protection Rules{% endblock %}
+{% block head %}
+<style>
+.rules-page{display:flex;flex-direction:column;gap:14px}
+.rule-card{background:var(--bg-card);border:1px solid var(--border);border-left:4px solid var(--text-muted);border-radius:13px;padding:12px 16px;transition:.18s ease;box-shadow:0 4px 14px rgba(0,0,0,.08)}
+.rule-card:hover{border-color:color-mix(in srgb,var(--accent) 45%,var(--border));border-left-color:var(--accent);transform:translateY(-1px);box-shadow:0 8px 22px rgba(0,0,0,.12)}
+.rule-card.disabled{opacity:.5}
+.rule-card.disabled:hover{opacity:.7}
+.rule-card.status-active{border-left-color:var(--success)}
+.rule-card.status-inactive{border-left-color:var(--text-muted)}
+.rule-card.status-mismatch{border-left-color:var(--warning)}
+.rule-info{flex:1;min-width:0}
+.rule-name{font-weight:800;font-size:14px;color:var(--text-primary);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.rule-desc{font-size:12px;color:var(--text-secondary);margin-top:2px}
+.toggle{position:relative;display:inline-block;width:44px;height:24px;flex-shrink:0}
+.toggle input{opacity:0;width:0;height:0}
+.toggle-slider{position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:var(--danger);border-radius:24px;transition:.3s}
+.toggle-slider:before{position:absolute;content:"";height:18px;width:18px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.3s}
+.toggle input:checked+.toggle-slider{background:var(--success)}
+.toggle input:checked+.toggle-slider:before{transform:translateX(20px)}
+.rule-params{display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)}
+.rule-params.open{display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:end}
+.param-group{display:flex;flex-direction:column;gap:2px}
+.param-group label{font-size:11px;color:var(--text-secondary);font-weight:600}
+.param-group input{padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-tertiary);color:var(--text-primary);font-size:12px}
+.param-group input:focus{outline:none;border-color:var(--accent)}
+.ipbl-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:6px}
+.ipbl-stat{background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:10px;text-align:center}
+.ipbl-stat .ipbl-stat-val{font-size:24px;font-weight:900;color:var(--accent)}
+.ipbl-stat .ipbl-stat-label{font-size:10px;color:var(--text-muted);margin-top:2px;text-transform:uppercase;letter-spacing:.04em}
+.ipbl-list-row{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--bg-card);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:10px;margin-bottom:5px;transition:.15s ease}
+.ipbl-list-row:hover{background:color-mix(in srgb,var(--accent) 6%,transparent);border-color:color-mix(in srgb,var(--accent) 45%,var(--border));transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.10)}
+.ipbl-list-row.disabled{opacity:.55;border-left-color:var(--text-muted)}
+.ipbl-list-info{flex:1;min-width:0}
+.ipbl-list-name{font-weight:700;font-size:13px;color:var(--text-primary)}
+.ipbl-list-desc{font-size:11px;color:var(--text-secondary);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ipbl-list-meta{display:flex;gap:6px;align-items:center;margin-top:3px;flex-wrap:wrap}
+.ipbl-list-meta span{font-size:10px;padding:2px 6px;border-radius:5px;background:var(--bg-tertiary);color:var(--text-muted)}
+.ipbl-list-meta span.cat{background:color-mix(in srgb,var(--accent) 15%,var(--bg-tertiary));color:var(--accent)}
+.ipbl-list-actions{display:flex;gap:4px;align-items:center;flex-shrink:0}
+.ipbl-toggle{position:relative;width:36px;height:20px;cursor:pointer}
+.ipbl-toggle input{display:none}
+.ipbl-toggle .slider{position:absolute;inset:0;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:10px;transition:.2s}
+.ipbl-toggle input:checked+.slider{background:var(--success);border-color:var(--success)}
+.ipbl-toggle .slider::before{content:'';position:absolute;width:14px;height:14px;border-radius:50%;background:#fff;top:2px;left:3px;transition:.2s}
+.ipbl-toggle input:checked+.slider::before{left:19px}
+.ipbl-add-form{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.ipbl-add-form input,.ipbl-add-form select{padding:7px 10px;border:1px solid var(--border);border-radius:7px;background:var(--bg-primary);color:var(--text-primary);font-size:12px}
+.ipbl-add-form input:focus,.ipbl-add-form select:focus{border-color:var(--accent);outline:none}
+.ipbl-custom-row{display:flex;align-items:center;gap:8px;padding:7px 12px;background:var(--bg-card);border:1px solid var(--border);border-radius:7px;margin-bottom:3px}
+.ipbl-custom-row code{font-family:'JetBrains Mono','SFMono-Regular',Consolas,monospace;font-size:11px;color:var(--accent)}
+.tab-content{display:none}
+.tab-content.active{display:block}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="rules-page">
+
+<section class="page-hero">
+  <div class="page-hero-top">
+    <div>
+      <div class="page-kicker">Traffic protection rules</div>
+      <div class="page-title">Protection Rules</div>
+      <div class="page-subtitle">Manage firewall nftables rules and IP blocklists. Changes are applied immediately.</div>
+    </div>
+    <div class="page-state-pill active">
+      <span class="state-dot"></span><span>{{ rules|selectattr('enabled','true')|list|length }} Active</span>
+    </div>
+  </div>
+  <div class="kpi-grid">
+    <div class="kpi-card accent">
+      <div class="kpi-label">Total Rules</div>
+      <div class="kpi-value">{{ rules|length }}</div>
+      <div class="kpi-note">All configured</div>
+    </div>
+    <div class="kpi-card success">
+      <div class="kpi-label">Active</div>
+      <div class="kpi-value">{{ rules|selectattr('enabled','true')|list|length }}</div>
+      <div class="kpi-note">Currently running</div>
+    </div>
+    <div class="kpi-card danger">
+      <div class="kpi-label">Disabled</div>
+      <div class="kpi-value">{{ rules|selectattr('enabled','false')|list|length }}</div>
+      <div class="kpi-note">Turned off</div>
+    </div>
+    <div class="kpi-card warn">
+      <div class="kpi-label">Mismatched</div>
+      <div class="kpi-value">{{ rules|selectattr('mismatched','true')|list|length if rules is defined else 0 }}</div>
+      <div class="kpi-note">Config vs runtime</div>
+    </div>
+    <div class="kpi-card purple">
+      <div class="kpi-label">IPBL IPv4</div>
+      <div class="kpi-value" id="stat-ipbl-v4">{{ ipbl_stats.ipbl_ipv4_count }}</div>
+      <div class="kpi-note">Blocked IPs</div>
+    </div>
+    <div class="kpi-card purple">
+      <div class="kpi-label">IPBL IPv6</div>
+      <div class="kpi-value" id="stat-ipbl-v6">{{ ipbl_stats.ipbl_ipv6_count }}</div>
+      <div class="kpi-note">Blocked IPs</div>
+    </div>
+  </div>
+</section>
+
+<section class="page-toolbar">
+  <div class="page-tabs">
+    {% for cat_name in categories.keys() %}
+    <button class="page-tab rules-tab {% if (active_tab == cat_name) or (active_tab not in categories and active_tab != 'ip-blocklists' and loop.first) %}active{% endif %}" onclick="switchCat('{{ cat_name }}',this)">{{ cat_name }}</button>
+    {% endfor %}
+    <button class="page-tab {% if active_tab == 'ip-blocklists' %}active{% endif %}" onclick="switchTab('ip-blocklists')" style="margin-left:auto">&#x1F4E6; IP Blocklists</button>
+  </div>
+  <div class="page-actions">
+    <div style="font-size:11px;color:var(--warning);font-weight:700">&#9888; Changes apply immediately</div>
+  </div>
+</section>
+
+{# ===================== RULES TABS ===================== #}
+{% for cat_name, cat_rules in categories.items() %}
+<div class="cat-panel rules-panel" data-cat="{{ cat_name }}" {% if active_tab == cat_name %}{% elif active_tab == 'ip-blocklists' %}style="display:none"{% elif loop.first %}{% else %}style="display:none"{% endif %}>
+  <div class="section-heading">{{ cat_name }}</div>
+  {% for rule in cat_rules %}
+  <div class="rule-card {% if not rule.enabled %}disabled{% endif %} {% if rule.real_status and not rule.enabled %}status-mismatch{% elif not rule.real_status and rule.enabled %}status-mismatch{% elif rule.real_status and rule.enabled %}status-active{% else %}status-inactive{% endif %}" id="rule-{{ rule.id }}">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <div class="rule-info">
+        <div class="rule-name">{{ rule.id }}
+          {% if not rule.enabled %}<span class="mod-badge red">Disabled</span>{% endif %}
+          {% if rule.real_status and not rule.enabled %}<span class="mod-badge yellow">&#x26A0; Running</span>
+          {% elif not rule.real_status and rule.enabled %}<span class="mod-badge yellow">&#x26A0; Not Active</span>
+          {% elif rule.real_status and rule.enabled %}<span class="mod-badge green">Active</span>
+          {% elif not rule.real_status and not rule.enabled %}<span class="mod-badge gray">Off</span>
+          {% endif %}
+        </div>
+        <div class="rule-desc">{{ rule.description }}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        {% if rule.editable %}
+        <button type="button" class="btn btn-secondary btn-sm" onclick="toggleParams('{{ rule.id }}')">&#x2699; Edit</button>
+        {% endif %}
+        <label class="toggle">
+          <input type="checkbox" {% if rule.enabled %}checked{% endif %} onchange="toggleRule('{{ rule.id }}',this)">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+    </div>
+    {% if rule.editable and rule.param_schema %}
+    <div class="rule-params" id="params-{{ rule.id }}">
+      <form class="rule-update-form" data-rule-id="{{ rule.id }}">
+        <input type="hidden" name="rule_id" value="{{ rule.id }}">
+        {% for schema in rule.param_schema %}
+        <div class="param-group">
+          <label>{{ schema.label }}</label>
+          {% if schema.type == 'number' %}
+          <input type="number" name="{{ schema.key }}" value="{{ rule.params.get(schema.key, '') }}" min="{{ schema.min|default(1) }}" max="{{ schema.max|default(65535) }}" step="1">
+          {% else %}
+          <input type="text" name="{{ schema.key }}" value="{{ rule.params.get(schema.key, '') if schema.key != 'ports' else (rule.params.get(schema.key)|join(', ')) }}" placeholder="{{ schema.placeholder|default('') }}">
+          {% endif %}
+        </div>
+        {% endfor %}
+        <div class="param-group">
+          <label>&nbsp;</label>
+          <button type="submit" class="btn btn-primary btn-sm">Save</button>
+        </div>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endfor %}
+
+{# ===================== IP BLOCKLISTS TAB ===================== #}
+<div id="tab-ip-blocklists" class="tab-content {% if active_tab == 'ip-blocklists' %}active{% endif %}">
+
+<div class="panel-card">
+  <div class="panel-card-title">Add Custom Blocklist <span>URL source</span></div>
+  <form id="add-list-form" class="ipbl-add-form" onsubmit="return addList(event)">
+    <input type="text" id="new-list-name" placeholder="Name (e.g. My Threat Feed)" required style="flex:1;min-width:140px">
+    <input type="text" id="new-list-url" placeholder="https://example.com/blocklist.txt" required style="flex:2;min-width:200px">
+    <select id="new-list-fmt">
+      <option value="netset">Netset (IP/CIDR per line)</option>
+      <option value="spamhaus">Spamhaus (IP ; comment)</option>
+    </select>
+    <input type="text" id="new-list-category" placeholder="Category (optional)" style="min-width:100px">
+    <button type="submit" class="mod-action-btn success">&#x2795; Add List</button>
+  </form>
+</div>
+
+<div class="panel-card" style="margin-top:14px">
+  <div class="panel-card-title">
+    Blocklists
+    <span id="lists-count">{{ ipbl_lists|length }} lists</span>
+    <button class="mod-action-btn ghost" onclick="downloadAllLists()" style="margin-left:8px;font-size:11px;padding:4px 10px">&#x21BB; Update All Enabled</button>
+  </div>
+  <div id="lists-container">
+  {% for lst in ipbl_lists %}
+  <div class="ipbl-list-row {% if not lst.enabled %}disabled{% endif %}" id="list-row-{{ lst.id }}">
+    <div class="ipbl-list-info">
+      <div class="ipbl-list-name">{{ lst.name }} {% if lst.is_preset %}<span class="mod-badge blue" style="font-size:9px">PRESET</span>{% endif %}</div>
+      {% if lst.description %}<div class="ipbl-list-desc">{{ lst.description }}</div>{% endif %}
+      <div class="ipbl-list-meta">
+        {% if lst.url %}<span title="{{ lst.url }}">{{ lst.url[:50] }}{% if lst.url|length > 50 %}...{% endif %}</span>{% endif %}
+        <span>{{ lst.entry_count }} entries</span>
+        {% if lst.last_updated %}<span>Updated: {{ lst.last_updated|strftime }}</span>{% endif %}
+        {% if lst.last_error %}<span class="mod-badge red" style="font-size:9px">Error</span>{% endif %}
+        {% for cat in (lst.category or '').split(',')[:3] %}
+        {% if cat %}<span class="cat">{{ cat }}</span>{% endif %}
+        {% endfor %}
+      </div>
+    </div>
+    <div class="ipbl-list-actions">
+      <label class="ipbl-toggle" title="{% if lst.enabled %}Disable{% else %}Enable{% endif %}">
+        <input type="checkbox" {% if lst.enabled %}checked{% endif %} onchange="toggleList({{ lst.id }}, this.checked)">
+        <span class="slider"></span>
+      </label>
+      <button class="mod-action-btn ghost" onclick="downloadList({{ lst.id }})" title="Download/Update">&#x21BB;</button>
+      {% if lst.url %}<button class="mod-action-btn danger" onclick="deleteList({{ lst.id }})" title="Delete">&#x2716;</button>{% endif %}
+    </div>
+  </div>
+  {% endfor %}
+  {% if not ipbl_lists %}
+  <div class="mod-empty-state"><div class="icon">&#x1F4E6;</div><p>No blocklists configured. Add one above or enable presets.</p></div>
+  {% endif %}
+  </div>
+</div>
+
+<div class="panel-card" style="margin-top:14px">
+  <div class="panel-card-title">Custom Blocked IPs <span>{{ ipbl_custom|length }} entries</span></div>
+  <form class="ipbl-add-form" onsubmit="return addCustom(event)" style="margin-bottom:10px">
+    <input type="text" id="custom-ip" placeholder="IP or CIDR (e.g. 1.2.3.4 or 10.0.0.0/24)" required style="flex:2;min-width:180px">
+    <input type="text" id="custom-comment" placeholder="Comment (optional)" style="flex:1;min-width:120px">
+    <button type="submit" class="mod-action-btn success">&#x2795; Block IP</button>
+  </form>
+  {% for entry in ipbl_custom %}
+  <div class="ipbl-custom-row">
+    <code>{{ entry.ip_or_cidr }}</code>
+    <span style="flex:1;color:var(--text-secondary);font-size:11px">{{ entry.comment or '' }}</span>
+    <span style="font-size:10px;color:var(--text-muted)">{{ entry.added_by }}</span>
+    <button class="mod-action-btn danger" style="font-size:10px;padding:3px 8px" onclick="removeCustom('{{ entry.ip_or_cidr }}')">&#x2716;</button>
+  </div>
+  {% endfor %}
+  {% if not ipbl_custom %}
+  <div style="text-align:center;padding:16px;color:var(--text-muted);font-size:12px">No custom IP entries</div>
+  {% endif %}
+</div>
+
+</div>
+
+</div>
+
+<script>
+function switchCat(cat, btn) {
+    document.querySelectorAll('.cat-panel').forEach(function(p) { p.style.display = 'none'; });
+    document.querySelectorAll('.rules-tab').forEach(function(b) { b.classList.remove('active'); });
+    document.querySelectorAll('.page-tab').forEach(function(b) { b.classList.remove('active'); });
+    var panel = document.querySelector('.cat-panel[data-cat="' + cat + '"]');
+    if (panel) panel.style.display = 'block';
+    btn.classList.add('active');
+    document.getElementById('tab-ip-blocklists').style.display = 'none';
+    history.replaceState(null, '', '?tab=' + encodeURIComponent(cat));
+}
+
+function switchTab(tab) {
+    if (tab === 'ip-blocklists') {
+        document.querySelectorAll('.cat-panel').forEach(function(p) { p.style.display = 'none'; });
+        document.querySelectorAll('.page-tab').forEach(function(b) { b.classList.remove('active'); });
+        document.getElementById('tab-ip-blocklists').style.display = 'block';
+        event.target.classList.add('active');
+        history.replaceState(null, '', '?tab=' + encodeURIComponent(tab));
+    }
+}
+
+function getCurrentTab() {
+    var params = new URLSearchParams(window.location.search);
+    return params.get('tab') || '';
+}
+
+function reloadWithTab() {
+    var tab = getCurrentTab();
+    location.href = location.pathname + (tab ? '?tab=' + encodeURIComponent(tab) : '');
+}
+
+function toggleRule(ruleId, cb) {
+    var enabled = cb.checked;
+    fetch('/rules/toggle', {method:'POST', headers:{'X-Requested-With':'XMLHttpRequest','Content-Type':'application/x-www-form-urlencoded'}, body:'rule_id='+encodeURIComponent(ruleId)+'&enabled='+(enabled?'1':'0')})
+    .then(function(r){return r.json();})
+    .then(function(d){showToast(d.message||'Toggled');setTimeout(reloadWithTab,800);})
+    .catch(function(){showToast('Error toggling rule','error');});
+}
+
+function toggleParams(ruleId) {
+    var el = document.getElementById('params-'+ruleId);
+    if(el) el.classList.toggle('open');
+}
+
+document.addEventListener('submit', function(e) {
+    var form = e.target;
+    if(form.classList.contains('rule-update-form')) {
+        e.preventDefault();
+        var fd = new FormData(form);
+        fetch('/rules/update', {method:'POST', body:fd, headers:{'X-Requested-With':'XMLHttpRequest'}})
+        .then(function(r){return r.json();})
+        .then(function(d){showToast(d.message||'Saved');setTimeout(function(){reloadWithTab();},800);})
+        .catch(function(){showToast('Error saving rule','error');});
+    }
+});
+
+function showToast(msg, isError) {
+    var existing = document.querySelector('.flash-banner.toast');
+    if (existing) existing.remove();
+    var el = document.createElement('div');
+    el.className = 'flash-banner toast' + (isError ? ' error' : '');
+    el.textContent = msg;
+    document.querySelector('.rules-page').insertBefore(el, document.querySelector('.page-hero').nextSibling);
+    setTimeout(function(){ if (el.parentNode) el.remove(); }, 4000);
+}
+
+function toggleList(id, enabled) {
+    fetch('/api/ip-blocklists/lists/' + id + '/toggle', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({enabled: enabled})
+    }).then(r => r.json()).then(d => {
+        if (!d.ok) { showToast(d.msg, true); reloadWithTab(); }
+        else { showToast(d.msg, false); reloadWithTab(); }
+    }).catch(e => showToast(e.message, true));
+}
+
+function downloadList(id) {
+    showToast('Downloading list...', false);
+    fetch('/api/ip-blocklists/lists/' + id + '/download', {method: 'POST'})
+        .then(r => r.json()).then(d => { showToast(d.msg, !d.ok); })
+        .catch(e => showToast(e.message, true));
+}
+
+function downloadAllLists() {
+    showToast('Updating all enabled lists...', false);
+    fetch('/api/ip-blocklists/download-all', {method: 'POST'})
+        .then(r => r.json()).then(d => {
+            var msgs = d.results.map(function(r){ return r.name + ': ' + (r.ok ? 'OK' : r.msg); }).join('\n');
+            showToast(msgs || 'Done', false);
+            setTimeout(function(){ reloadWithTab(); }, 2000);
+        }).catch(e => showToast(e.message, true));
+}
+
+function deleteList(id) {
+    if (!confirm('Delete this blocklist and flush its entries from nft?')) return;
+    fetch('/api/ip-blocklists/lists/' + id + '/delete', {method: 'POST'})
+        .then(r => r.json()).then(d => { showToast(d.msg, !d.ok); setTimeout(function(){ reloadWithTab(); }, 1000); })
+        .catch(e => showToast(e.message, true));
+}
+
+function addList(e) {
+    e.preventDefault();
+    var name = document.getElementById('new-list-name').value;
+    var url = document.getElementById('new-list-url').value;
+    var fmt = document.getElementById('new-list-fmt').value;
+    var cat = document.getElementById('new-list-category').value;
+    fetch('/api/ip-blocklists/lists', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name: name, url: url, fmt: fmt, category: cat})
+    }).then(r => r.json()).then(d => { showToast(d.result || d.msg || 'Added', !d.ok); setTimeout(function(){ reloadWithTab(); }, 1000); })
+        .catch(e => showToast(e.message, true));
+    return false;
+}
+
+function addCustom(e) {
+    e.preventDefault();
+    var ip = document.getElementById('custom-ip').value.trim();
+    var comment = document.getElementById('custom-comment').value.trim();
+    fetch('/api/ip-blocklists/custom', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ip_or_cidr: ip, comment: comment})
+    }).then(r => r.json()).then(d => { showToast(d.msg, !d.ok); if (d.ok) setTimeout(function(){ reloadWithTab(); }, 800); })
+        .catch(e => showToast(e.message, true));
+    return false;
+}
+
+function removeCustom(ip) {
+    if (!confirm('Remove ' + ip + ' from blocklist?')) return;
+    fetch('/api/ip-blocklists/custom/' + encodeURIComponent(ip), {method: 'DELETE'})
+        .then(r => r.json()).then(d => { showToast(d.msg, !d.ok); if (d.ok) setTimeout(function(){ reloadWithTab(); }, 800); })
+        .catch(e => showToast(e.message, true));
+}
+
+setInterval(function(){
+    fetch('/api/ip-blocklists/stats').then(r=>r.json()).then(d=>{
+        document.getElementById('stat-ipbl-v4').textContent=d.ipbl_ipv4_count;
+        document.getElementById('stat-ipbl-v6').textContent=d.ipbl_ipv6_count;
+    }).catch(()=>{});
+}, 30000);
+</script>
+{% endblock %}

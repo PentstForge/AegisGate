@@ -1,0 +1,619 @@
+{% extends "base.html" %}
+{% block title %}Network — AegisGate{% endblock %}
+{% block page_title %}Network &amp; Routing{% endblock %}
+{% block head %}
+<style>
+.net-page{display:flex;flex-direction:column;gap:14px}
+.iface-card{background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:10px;display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;position:relative;overflow:hidden;box-shadow:0 6px 18px rgba(0,0,0,.10);transition:.18s ease}
+.iface-card:hover{border-color:color-mix(in srgb,var(--accent) 40%,var(--border));transform:translateY(-1px);box-shadow:0 10px 26px rgba(0,0,0,.14)}
+.iface-card::before{content:'';position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--text-muted)}
+.iface-card.if-up::before{background:var(--success)}
+.iface-card.if-down::before{background:var(--danger)}
+.iface-card.if-wg::before{background:var(--accent)}
+.iface-card.if-wifi::before{background:var(--warning)}
+.iface-card.if-bridge::before{background:#a371f7}
+.if-icon{width:38px;height:38px;display:flex;align-items:center;justify-content:center;border-radius:50%;font-size:18px;flex-shrink:0}
+.if-icon.eth{background:color-mix(in srgb,var(--accent) 14%,transparent);color:var(--accent)}
+.if-icon.wg{background:color-mix(in srgb,var(--success) 14%,transparent);color:var(--success)}
+.if-icon.wifi{background:color-mix(in srgb,var(--warning) 14%,transparent);color:var(--warning)}
+.if-icon.bridge{background:color-mix(in srgb,#a371f7 14%,transparent);color:#a371f7}
+.if-icon.vlan{background:color-mix(in srgb,var(--info) 14%,transparent);color:var(--info)}
+.if-info .if-name{font-size:14px;font-weight:800;color:var(--text-primary)}
+.if-info .if-detail{font-size:11px;color:var(--text-secondary);margin-top:3px;line-height:1.55}
+.if-actions{display:flex;gap:4px;align-items:center;flex-shrink:0}
+.if-actions form{margin:0;display:inline-flex;gap:4px;align-items:center}
+.if-actions input[type="number"]{width:65px;font-size:11px;padding:3px 5px}
+.if-actions select{font-size:10px;padding:2px 6px;border-radius:4px}
+.tab-panel{display:none}
+.tab-panel.active{display:block}
+.route-row{display:grid;grid-template-columns:2fr 1fr 1.5fr .5fr .5fr auto;gap:8px;padding:8px 12px;font-size:12px;border-bottom:1px solid color-mix(in srgb,var(--border) 65%,transparent);align-items:center}
+.route-row:hover{background:color-mix(in srgb,var(--accent) 6%,transparent)}
+.route-header{font-weight:800;color:var(--accent);background:var(--bg-tertiary);position:sticky;top:0;z-index:1;font-size:10px;text-transform:uppercase;letter-spacing:.06em}
+.dns-item{font-family:'JetBrains Mono','SFMono-Regular',Consolas,monospace;font-size:13px;padding:8px 0;border-bottom:1px solid color-mix(in srgb,var(--border) 65%,transparent)}
+.dns-item:last-child{border-bottom:none}
+.frr-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin:10px 0}
+.frr-item{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:10px;text-align:center}
+.frr-item .frr-name{font-size:12px;font-weight:800}
+.frr-item .frr-state{font-size:10px;margin-top:4px}
+.role-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}
+.role-card{background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:8px;text-align:center}
+.role-card .role-icon{font-size:18px}
+.role-card .role-label{font-size:12px;font-weight:800;margin-top:2px}
+.role-card .role-desc{font-size:10px;color:var(--text-secondary)}
+
+@media(max-width:1100px){.kpi-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:760px){.page-hero-top,.page-toolbar{flex-direction:column;align-items:stretch}.kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.page-tabs,.page-actions{width:100%}.page-tab,.page-actions .btn,.page-actions .mod-action-btn{flex:1}.iface-card{grid-template-columns:1fr;gap:8px}.if-actions{flex-wrap:wrap}}
+</style>
+{% endblock %}
+{% block content %}
+<div class="net-page">
+
+<section class="page-hero">
+  <div class="page-hero-top">
+    <div>
+      <div class="page-kicker">Network control plane</div>
+      <div class="page-title">Network &amp; Routing</div>
+      <div class="page-subtitle">Interfaces, VLANs, static routes, DNS resolvers, dynamic routing protocols and connection tracking — all in one place.</div>
+    </div>
+    <div class="page-state-pill online">
+      <span class="state-dot"></span>
+      <span>{{ net.hostname or 'gateway' }}</span>
+    </div>
+  </div>
+  <div class="kpi-grid">
+    <div class="kpi-card accent"><div class="kpi-label">Interfaces</div><div class="kpi-value">{{ all_ifaces|length }}</div><div class="kpi-note">Physical &amp; virtual</div></div>
+    <div class="kpi-card purple"><div class="kpi-label">VLANs</div><div class="kpi-value">{{ vlans|length if vlans else 0 }}</div><div class="kpi-note">Tagged segments</div></div>
+    <div class="kpi-card"><div class="kpi-label">Routes</div><div class="kpi-value">{{ net.routes|length }}</div><div class="kpi-note">Routing table</div></div>
+    <div class="kpi-card {% if net.conntrack.percentage > 80 %}danger{% elif net.conntrack.percentage > 50 %}warn{% else %}success{% endif %}"><div class="kpi-label">Conntrack</div><div class="kpi-value">{{ net.conntrack.percentage }}%</div><div class="kpi-note">{{ net.conntrack.count }} / {{ net.conntrack.max }}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Default GW</div><div class="kpi-value" style="font-size:16px">{{ net.default_gw or 'none' }}</div><div class="kpi-note">Gateway</div></div>
+    <div class="kpi-card"><div class="kpi-label">Hostname</div><div class="kpi-value" style="font-size:16px">{{ net.hostname }}</div><div class="kpi-note">System identity</div></div>
+  </div>
+</section>
+
+{% if request.args.get('message') %}
+<div class="flash-banner {% if request.args.get('error') %}error{% endif %}">{{ request.args.get('message') }}</div>
+{% endif %}
+
+<section class="page-toolbar">
+  <div class="page-tabs">
+    <button class="page-tab active" onclick="showNetTab('interfaces',this)">&#x1F5A7; Interfaces</button>
+    <button class="page-tab" onclick="showNetTab('vlan',this)">&#x1F517; VLANs</button>
+    <button class="page-tab" onclick="showNetTab('routes',this)">&#x1F6E0; Routes</button>
+    <button class="page-tab" onclick="showNetTab('dns',this)">&#x1F310; DNS</button>
+    <button class="page-tab" onclick="showNetTab('routing',this)">&#x1F4E1; Routing Protocols</button>
+    <button class="page-tab" onclick="showNetTab('conntrack',this)">&#x1F517; Conntrack</button>
+    <button class="page-tab" onclick="showNetTab('multiwan',this)">&#x1F310; Multi-WAN</button>
+  </div>
+  <div class="page-actions">
+    <button class="mod-action-btn primary" onclick="showModal('addRoute')">&#x2795; Add Route</button>
+    <button class="mod-action-btn ghost" onclick="showModal('addVlan')">&#x1F517; Create VLAN</button>
+  </div>
+</section>
+
+<div id="net-interfaces" class="tab-panel active">
+  {% for iface in all_ifaces %}
+  <div class="iface-card {% if iface.operstate == 'UP' %}if-up{% else %}if-down{% endif %} {% if iface.link_type == 'wireguard' %}if-wg{% elif iface.link_type == 'wifi' %}if-wifi{% elif iface.link_type == 'bridge' %}if-bridge{% endif %}">
+    <div class="if-icon {% if iface.link_type == 'ethernet' %}eth{% elif iface.link_type == 'wireguard' %}wg{% elif iface.link_type == 'wifi' %}wifi{% elif iface.link_type == 'bridge' %}bridge{% else %}vlan{% endif %}">
+      {% if iface.link_type == 'ethernet' %}&#x1F5A7;
+      {% elif iface.link_type == 'wireguard' %}&#x1F310;
+      {% elif iface.link_type == 'wifi' %}&#x1F4F6;
+      {% elif iface.link_type == 'vlan' %}&#x1F517;
+      {% elif iface.link_type == 'bridge' %}&#x1F517;
+      {% else %}&#x1F4E1;{% endif %}
+    </div>
+    <div class="if-info">
+      <div class="if-name">
+        {{ iface.name }}
+        <span class="mod-badge {% if iface.operstate == 'UP' %}green{% else %}red{% endif %}" style="font-size:9px;margin-left:6px">{{ iface.operstate }}</span>
+        {% if iface.speed_mbps %}<span style="font-size:11px;color:var(--text-muted);margin-left:8px">{{ iface.speed_mbps }} Mbps</span>{% endif %}
+        <form method="POST" action="/network/set-role" style="display:inline;margin-left:8px">
+          <input type="hidden" name="iface" value="{{ iface.name }}">
+          <select name="role" onchange="this.form.submit()" style="font-size:10px;padding:2px 6px;border-radius:4px;background:var(--bg-tertiary);color:var(--text-primary);border:1px solid var(--border)">
+            {% for rid, rinfo in roles.items() %}
+            <option value="{{ rid }}" {{ 'selected' if iface.role == rid else '' }}>{{ rinfo.icon }} {{ rinfo.label }}</option>
+            {% endfor %}
+          </select>
+        </form>
+      </div>
+      <div class="if-detail">
+        {% if iface.ipv4 %}<span style="margin-right:12px">IPv4: <strong>{{ iface.ipv4 }}</strong></span>{% endif %}
+        {% if iface.ipv6 %}<span>IPv6: {{ iface.ipv6[:40] }}</span>{% endif %}
+      </div>
+      <div class="if-detail">
+        MAC: {{ iface.mac }} &middot; MTU: {{ iface.mtu }} &middot; {{ iface.link_type }}
+        {% if iface.vlan_id %} &middot; VLAN {{ iface.vlan_id }} (parent: {{ iface.vlan_parent }}){% endif %}
+        &middot; RX: {{ (iface.rx_bytes / 1073741824) | round(2) if iface.rx_bytes > 1073741824 else (iface.rx_bytes / 1048576) | round(1) if iface.rx_bytes > 1048576 else (iface.rx_bytes / 1024) | round(0) }} {{ 'GB' if iface.rx_bytes > 1073741824 else 'MB' if iface.rx_bytes > 1048576 else 'KB' }}
+        &middot; TX: {{ (iface.tx_bytes / 1073741824) | round(2) if iface.tx_bytes > 1073741824 else (iface.tx_bytes / 1048576) | round(1) if iface.tx_bytes > 1048576 else (iface.tx_bytes / 1024) | round(0) }} {{ 'GB' if iface.tx_bytes > 1073741824 else 'MB' if iface.tx_bytes > 1048576 else 'KB' }}
+      </div>
+    </div>
+    <div class="if-actions">
+      <form method="POST" action="/network/set-mtu" style="margin:0;display:flex;gap:4px">
+        <input type="hidden" name="iface" value="{{ iface.name }}">
+        <input type="number" name="mtu" value="{{ iface.mtu }}" min="576" max="9000" style="width:65px;font-size:11px;padding:3px 5px">
+        <button type="submit" class="mod-action-btn ghost" style="padding:3px 8px;font-size:10px">MTU</button>
+      </form>
+      {% if iface.name != 'lo' and iface.link_type != 'vlan' %}
+      <form method="POST" action="/network/toggle-iface" style="margin:0">
+        <input type="hidden" name="iface" value="{{ iface.name }}">
+        <input type="hidden" name="action" value="{{ 'down' if iface.operstate == 'UP' else 'up' }}">
+        <button type="submit" class="mod-action-btn {% if iface.operstate == 'UP' %}danger{% else %}success{% endif %}" style="padding:3px 8px;font-size:10px" onclick="return confirm('{{ 'Bring down' if iface.operstate == 'UP' else 'Bring up' }} {{ iface.name }}?')">{{ 'Down' if iface.operstate == 'UP' else 'Up' }}</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<div id="net-vlan" class="tab-panel">
+  <div class="panel-card">
+    <div class="panel-card-title">VLAN Management <span>tagged segments</span></div>
+    {% if vlans %}
+    <div class="tbl-wrap" style="max-height:400px">
+      <table class="mod-table">
+        <thead>
+          <tr><th>VLAN Name</th><th>Parent</th><th>VLAN ID</th><th>IP Address</th><th>Role</th><th>Label</th><th>Action</th></tr>
+        </thead>
+        <tbody>
+        {% for vname, vcfg in vlans.items() %}
+          <tr>
+            <td style="font-family:monospace;font-weight:700">{{ vname }}</td>
+            <td>{{ vcfg.parent }}</td>
+            <td><span class="mod-badge blue">{{ vcfg.vlan_id }}</span></td>
+            <td style="font-family:monospace">{{ vcfg.ip_cidr or '—' }}</td>
+            <td>{{ roles.get(vcfg.role, {}).get('label', vcfg.role) }}</td>
+            <td>{{ vcfg.label or '—' }}</td>
+            <td>
+              <form method="POST" action="/network/delete-vlan" style="margin:0;display:inline">
+                <input type="hidden" name="vlan_name" value="{{ vname }}">
+                <button type="submit" class="mod-action-btn danger" style="padding:3px 8px;font-size:10px" onclick="return confirm('Delete VLAN {{ vname }}?')">Delete</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="mod-empty-state">
+      <div class="icon">&#x1F517;</div>
+      <p>No VLANs configured. Create one to segment your network.</p>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="section-heading">Available Roles</div>
+  <div class="role-grid">
+    {% for rid, rinfo in roles.items() %}
+    {% if rid != 'unused' %}
+    <div class="role-card">
+      <div class="role-icon">{{ rinfo.icon }}</div>
+      <div class="role-label" style="color:{{ rinfo.color }}">{{ rinfo.label }}</div>
+      <div class="role-desc">{{ rinfo.desc }}</div>
+    </div>
+    {% endif %}
+    {% endfor %}
+  </div>
+</div>
+
+<div id="net-routes" class="tab-panel">
+  <div class="panel-card">
+    <div class="panel-card-title">Routing Table <span>{{ net.routes|length }} entries</span></div>
+    <div class="tbl-wrap" style="max-height:500px">
+      <div class="route-row route-header">
+        <div>Destination</div><div>Device</div><div>Via</div><div>Metric</div><div>Proto</div><div>Action</div>
+      </div>
+      {% for r in net.routes %}
+      <div class="route-row">
+        <div style="font-family:monospace">{{ r.dst or 'default' }}</div>
+        <div>{{ r.dev }}</div>
+        <div style="font-family:monospace">{{ r.via or '—' }}</div>
+        <div>{{ r.metric }}</div>
+        <div><span class="mod-badge gray" style="font-size:10px">{{ r.proto }}</span></div>
+        <div>
+          {% if r.dst and r.dst != 'default' %}
+          <form method="POST" action="/network/del-route" style="margin:0;display:inline">
+            <input type="hidden" name="dst" value="{{ r.dst }}">
+            <input type="hidden" name="via" value="{{ r.via }}">
+            <input type="hidden" name="dev" value="{{ r.dev }}">
+            <button type="submit" class="mod-action-btn danger" style="padding:3px 8px;font-size:10px" onclick="return confirm('Delete route?')">Del</button>
+          </form>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<div id="net-dns" class="tab-panel">
+  <div class="panel-card">
+    <div class="panel-card-title">Nameservers <span>{{ net.dns.servers|length }}</span></div>
+    {% if net.dns.servers %}
+    {% for ns in net.dns.servers %}
+    <div class="dns-item">{{ ns }}</div>
+    {% endfor %}
+    {% else %}
+    <div class="mod-empty-state" style="padding:20px"><p>No DNS servers configured</p></div>
+    {% endif %}
+  </div>
+  {% if net.dns.search %}
+  <div class="panel-card">
+    <div class="panel-card-title">Search Domains <span>{{ net.dns.search|length }}</span></div>
+    {% for s in net.dns.search %}
+    <div class="dns-item">{{ s }}</div>
+    {% endfor %}
+  </div>
+  {% endif %}
+  <div style="margin-top:8px;font-size:11px;color:var(--text-muted)">Edit /etc/resolv.conf directly for DNS changes. Consider using systemd-resolved or resolvconf for persistence.</div>
+</div>
+
+<div id="net-routing" class="tab-panel">
+  <div class="section-heading">Dynamic Routing (FRR)</div>
+  {% if net.frr.installed %}
+  <div class="frr-grid">
+    <div class="frr-item">
+      <div class="frr-name">BGP</div>
+      <div class="frr-state"><span class="mod-badge {% if net.frr.bgp %}green{% else %}red{% endif %}">{{ 'ACTIVE' if net.frr.bgp else 'INACTIVE' }}</span></div>
+    </div>
+    <div class="frr-item">
+      <div class="frr-name">OSPF</div>
+      <div class="frr-state"><span class="mod-badge {% if net.frr.ospf %}green{% else %}red{% endif %}">{{ 'ACTIVE' if net.frr.ospf else 'INACTIVE' }}</span></div>
+    </div>
+    <div class="frr-item">
+      <div class="frr-name">OSPF6</div>
+      <div class="frr-state"><span class="mod-badge {% if net.frr.ospf6 %}green{% else %}red{% endif %}">{{ 'ACTIVE' if net.frr.ospf6 else 'INACTIVE' }}</span></div>
+    </div>
+    <div class="frr-item">
+      <div class="frr-name">RIP</div>
+      <div class="frr-state"><span class="mod-badge {% if net.frr.rip %}green{% else %}red{% endif %}">{{ 'ACTIVE' if net.frr.rip else 'INACTIVE' }}</span></div>
+    </div>
+    <div class="frr-item">
+      <div class="frr-name">RIPng</div>
+      <div class="frr-state"><span class="mod-badge {% if net.frr.ripng %}green{% else %}red{% endif %}">{{ 'ACTIVE' if net.frr.ripng else 'INACTIVE' }}</span></div>
+    </div>
+  </div>
+  {% if net.frr.version %}
+  <div class="panel-card" style="font-size:11px;color:var(--text-secondary);font-family:monospace">{{ net.frr.version }}</div>
+  {% endif %}
+  {% if net.frr.bgp_summary %}
+  <div class="panel-card">
+    <div class="panel-card-title">BGP Summary <span>neighbors</span></div>
+    <div style="font-size:11px;font-family:monospace;white-space:pre-wrap;max-height:300px;overflow-y:auto">{{ net.frr.bgp_summary }}</div>
+  </div>
+  {% endif %}
+  {% if net.frr.routes_output %}
+  <div class="panel-card">
+    <div class="panel-card-title">FRR Routing Table <span>dynamic routes</span></div>
+    <div style="font-size:11px;font-family:monospace;white-space:pre-wrap;max-height:400px;overflow-y:auto">{{ net.frr.routes_output }}</div>
+  </div>
+  {% endif %}
+  {% else %}
+  <div class="mod-empty-state">
+    <div class="icon">&#x1F4E1;</div>
+    <p style="font-size:14px;font-weight:800;margin-bottom:6px">FRR Not Installed</p>
+    <p style="font-size:12px;color:var(--text-secondary);margin-bottom:12px">Install FRRouting for BGP, OSPF, RIP dynamic routing protocols</p>
+    <code style="font-size:11px;color:var(--accent)">apt install frr</code>
+  </div>
+  {% endif %}
+</div>
+
+<div id="net-conntrack" class="tab-panel">
+  <div class="section-heading">Connection Tracking</div>
+  <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:14px">
+    <div class="kpi-card accent"><div class="kpi-label">Active</div><div class="kpi-value">{{ net.conntrack.count }}</div><div class="kpi-note">Current connections</div></div>
+    <div class="kpi-card"><div class="kpi-label">Maximum</div><div class="kpi-value">{{ net.conntrack.max }}</div><div class="kpi-note">Capacity limit</div></div>
+    <div class="kpi-card {% if net.conntrack.percentage > 80 %}danger{% elif net.conntrack.percentage > 50 %}warn{% else %}success{% endif %}"><div class="kpi-label">Usage</div><div class="kpi-value">{{ net.conntrack.percentage }}%</div><div class="kpi-note">Percentage</div></div>
+  </div>
+
+  <div class="panel-card">
+    <div class="panel-card-title">Hostname &amp; Gateway <span>system identity</span></div>
+    <div style="display:grid;grid-template-columns:auto 1fr;gap:8px 16px;font-size:13px">
+      <span style="color:var(--text-secondary)">Hostname:</span><span style="font-weight:700">{{ net.hostname }}</span>
+      <span style="color:var(--text-secondary)">Default GW:</span><span style="font-family:monospace;font-weight:700">{{ net.default_gw or 'none' }}</span>
+    </div>
+  </div>
+</div>
+
+</div>
+
+<div id="net-multiwan" class="tab-panel">
+  <div class="kpi-grid" style="margin-bottom:14px">
+    <div class="kpi-card accent"><div class="kpi-label">WAN Interfaces</div><div class="kpi-value" id="mw-kpi-total">{{ mw_status.total_count }}</div><div class="kpi-note">Configured</div></div>
+    <div class="kpi-card success"><div class="kpi-label">Active</div><div class="kpi-value" id="mw-kpi-active">{{ mw_status.active_count }}</div><div class="kpi-note">Links UP</div></div>
+    <div class="kpi-card {% if mw_status.failover_mode == 'auto' %}accent{% else %}warn'%}{% endif %}"><div class="kpi-label">Failover</div><div class="kpi-value" style="font-size:14px" id="mw-kpi-mode">{{ mw_status.failover_mode }}</div><div class="kpi-note">Mode</div></div>
+    <div class="kpi-card"><div class="kpi-label">LB Algorithm</div><div class="kpi-value" style="font-size:14px" id="mw-kpi-lb">{{ mw_status.lb_algorithm }}</div><div class="kpi-note">Load balance</div></div>
+    <div class="kpi-card {% if mw_status.enabled %}success{% else %}danger{% endif %}"><div class="kpi-label">Service</div><div class="kpi-value" id="mw-kpi-enabled">{{ 'ON' if mw_status.enabled else 'OFF' }}</div><div class="kpi-note">{{ 'Running' if mw_status.enabled else 'Disabled' }}</div></div>
+  </div>
+
+  <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+    <button class="mod-action-btn primary" onclick="showModal('addWan')">&#x2795; Add WAN</button>
+    <button class="mod-action-btn ghost" onclick="mwToggleService()" id="mw-toggle-btn">{{ 'Disable' if mw_status.enabled else 'Enable' }} Service</button>
+    <button class="mod-action-btn ghost" onclick="mwCheckNow()">&#x1F9EA; Check Now</button>
+    <button class="mod-action-btn ghost" onclick="mwApplyRouting()">&#x1F6E0; Apply Routes</button>
+  </div>
+
+  <div class="panel-card">
+    <div class="panel-card-title">WAN Interfaces <span>{{ mw_interfaces|length }} configured</span></div>
+    {% if mw_interfaces %}
+    <div class="tbl-wrap" style="max-height:500px">
+      <table class="mod-table">
+        <thead>
+          <tr><th>Name</th><th>Interface</th><th>Gateway</th><th>Role</th><th>Priority</th><th>Weight</th><th>Status</th><th>Health IP</th><th>Actions</th></tr>
+        </thead>
+        <tbody>
+        {% for w in mw_interfaces %}
+          <tr id="mw-row-{{ w.id }}">
+            <td style="font-weight:700">{{ w.display_name or w.name }}<br><span style="font-size:10px;color:var(--text-muted)">{{ w.name }}</span></td>
+            <td style="font-family:monospace">{{ w.interface }}</td>
+            <td style="font-family:monospace">{{ w.gateway }}</td>
+            <td><span class="mod-badge {% if w.role == 'active' %}green{% elif w.role == 'backup' %}blue{% else %}gray{% endif %}">{{ w.role }}</span></td>
+            <td>{{ w.priority }}</td>
+            <td>{{ w.weight }}</td>
+            <td><span class="mod-badge {% if w.status == 'up' %}green{% elif w.status == 'down' %}red{% else %}gray{% endif %}" id="mw-status-{{ w.id }}">{{ w.status }}</span></td>
+            <td style="font-family:monospace;font-size:11px">{{ w.health_check_ip }}</td>
+            <td style="white-space:nowrap">
+              <button class="mod-action-btn ghost" style="padding:2px 6px;font-size:10px" onclick="editWan({{ w.id }})">&#x270F; Edit</button>
+              <button class="mod-action-btn danger" style="padding:2px 6px;font-size:10px" onclick="deleteWan({{ w.id }},'{{ w.name }}')">&#x1F5D1;</button>
+              <button class="mod-action-btn {% if w.enabled %}success{% else %}warn{% endif %}" style="padding:2px 6px;font-size:10px" onclick="mwToggleIface({{ w.id }},{% if w.enabled %}0{% else %}1{% endif %})">{{ 'ON' if w.enabled else 'OFF' }}</button>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="mod-empty-state">
+      <div class="icon">&#x1F310;</div>
+      <p>No WAN interfaces configured. Add one to get started.</p>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="panel-card">
+    <div class="panel-card-title">Settings <span>failover &amp; load balancing</span></div>
+    <form id="mw-settings-form" onsubmit="return mwSaveSettings(event)">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="mod-form-row"><label>Failover Mode</label>
+          <select name="failover_mode">
+            <option value="auto" {{ 'selected' if mw_settings.get('failover_mode')=='auto' }}>Auto (automatic failover)</option>
+            <option value="manual" {{ 'selected' if mw_settings.get('failover_mode')=='manual' }}>Manual (user controlled)</option>
+          </select>
+        </div>
+        <div class="mod-form-row"><label>Load Balance Algorithm</label>
+          <select name="lb_algorithm">
+            <option value="weighted" {{ 'selected' if mw_settings.get('lb_algorithm')=='weighted' }}>Weighted (by weight)</option>
+            <option value="rr" {{ 'selected' if mw_settings.get('lb_algorithm')=='rr' }}>Round Robin</option>
+            <option value="failover" {{ 'selected' if mw_settings.get('lb_algorithm')=='failover' }}>Failover Only</option>
+          </select>
+        </div>
+        <div class="mod-form-row"><label>Check Interval (sec)</label><input type="number" name="check_interval" value="{{ mw_settings.get('check_interval','5') }}" min="1" max="60"></div>
+        <div class="mod-form-row"><label>Check Timeout (sec)</label><input type="number" name="check_timeout" value="{{ mw_settings.get('check_timeout','3') }}" min="1" max="30"></div>
+        <div class="mod-form-row"><label>Fail Count (down threshold)</label><input type="number" name="check_fail_count" value="{{ mw_settings.get('check_fail_count','3') }}" min="1" max="10"></div>
+        <div class="mod-form-row"><label>OK Count (up threshold)</label><input type="number" name="check_ok_count" value="{{ mw_settings.get('check_ok_count','2') }}" min="1" max="10"></div>
+        <div class="mod-form-row"><label>Sticky Sessions</label>
+          <select name="sticky_sessions">
+            <option value="1" {{ 'selected' if mw_settings.get('sticky_sessions')=='1' }}>Enabled</option>
+            <option value="0" {{ 'selected' if mw_settings.get('sticky_sessions')=='0' }}>Disabled</option>
+          </select>
+        </div>
+        <div class="mod-form-row"><label>NAT Masquerade</label>
+          <select name="nat_masquerade">
+            <option value="1" {{ 'selected' if mw_settings.get('nat_masquerade')=='1' }}>Enabled</option>
+            <option value="0" {{ 'selected' if mw_settings.get('nat_masquerade')=='0' }}>Disabled</option>
+          </select>
+        </div>
+        <div class="mod-form-row"><label>Default Route Metric Base</label><input type="number" name="default_route_metric_base" value="{{ mw_settings.get('default_route_metric_base','100') }}" min="10" max="9999"></div>
+      </div>
+      <div style="margin-top:12px;text-align:right">
+        <button type="submit" class="mod-action-btn success">&#x1F4BE; Save Settings</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="panel-card">
+    <div class="panel-card-title">Event Log <span>failover history</span></div>
+    {% if mw_events %}
+    <div class="tbl-wrap" style="max-height:300px">
+      <table class="mod-table">
+        <thead><tr><th>Time</th><th>Interface</th><th>Event</th><th>Before</th><th>After</th><th>Details</th></tr></thead>
+        <tbody>
+        {% for ev in mw_events[:50] %}
+          <tr>
+            <td style="font-size:11px;white-space:nowrap">{{ ev.ts|round(0) }}{% if ev.ts > 1000000000 %}<br>{{ (ev.ts|int)|strftime if ev.ts > 1000000000 else '' }}{% endif %}</td>
+            <td style="font-weight:700">{{ ev.interface }}</td>
+            <td><span class="mod-badge {% if ev.event == 'up' %}green{% elif ev.event == 'down' %}red{% else %}blue{% endif %}">{{ ev.event }}</span></td>
+            <td>{{ ev.old_status or '—' }}</td>
+            <td>{{ ev.new_status or '—' }}</td>
+            <td style="font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis">{{ ev.details or '—' }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="mod-empty-state" style="padding:20px"><p>No events yet</p></div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="mod-modal-overlay" id="modal-addWan" onclick="if(event.target===this)closeModals()">
+  <div class="mod-modal">
+    <h3>&#x1F310; Add WAN Interface</h3>
+    <form method="POST" action="/network/multiwan/add" id="mw-add-form">
+      <div class="mod-form-row"><label>Name (unique ID)</label><input type="text" name="name" placeholder="wan1" required></div>
+      <div class="mod-form-row"><label>Display Name</label><input type="text" name="display_name" placeholder="Primary ISP"></div>
+      <div class="mod-form-row"><label>Interface</label>
+        <select name="interface">
+          {% for iface in all_ifaces %}
+          {% if iface.role in ('wan','lan') or iface.name in ('eth0','eth1','ens','enp') %}
+          <option value="{{ iface.name }}">{{ iface.name }} ({{ iface.ipv4 or iface.operstate }})</option>
+          {% endif %}
+          {% endfor %}
+        </select>
+      </div>
+      <div class="mod-form-row"><label>Gateway</label><input type="text" name="gateway" placeholder="203.0.113.254" required></div>
+      <div class="mod-form-row"><label>Role</label>
+        <select name="role">
+          <option value="active">Active (load balanced)</option>
+          <option value="backup">Backup (failover only)</option>
+        </select>
+      </div>
+      <div class="mod-form-row"><label>Priority (lower = preferred)</label><input type="number" name="priority" value="100" min="1" max="9999"></div>
+      <div class="mod-form-row"><label>Weight (for weighted LB)</label><input type="number" name="weight" value="100" min="1" max="1000"></div>
+      <div class="mod-form-row"><label>Health Check IP</label><input type="text" name="health_check_ip" value="8.8.8.8"></div>
+      <div class="mod-form-row"><label>Metric Base</label><input type="number" name="metric_base" value="100" min="10" max="9999"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+        <button type="button" class="mod-action-btn ghost" onclick="closeModals()">Cancel</button>
+        <button type="submit" class="mod-action-btn success">Add WAN</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="mod-modal-overlay" id="modal-editWan" onclick="if(event.target===this)closeModals()">
+  <div class="mod-modal">
+    <h3>&#x270F; Edit WAN Interface</h3>
+    <form id="mw-edit-form" onsubmit="return mwSaveEdit(event)">
+      <input type="hidden" name="id" id="mw-edit-id">
+      <div class="mod-form-row"><label>Name</label><input type="text" name="name" id="mw-edit-name" required></div>
+      <div class="mod-form-row"><label>Display Name</label><input type="text" name="display_name" id="mw-edit-display_name"></div>
+      <div class="mod-form-row"><label>Interface</label><input type="text" name="interface" id="mw-edit-interface" required></div>
+      <div class="mod-form-row"><label>Gateway</label><input type="text" name="gateway" id="mw-edit-gateway" required></div>
+      <div class="mod-form-row"><label>Role</label>
+        <select name="role" id="mw-edit-role">
+          <option value="active">Active</option>
+          <option value="backup">Backup</option>
+        </select>
+      </div>
+      <div class="mod-form-row"><label>Priority</label><input type="number" name="priority" id="mw-edit-priority" min="1" max="9999"></div>
+      <div class="mod-form-row"><label>Weight</label><input type="number" name="weight" id="mw-edit-weight" min="1" max="1000"></div>
+      <div class="mod-form-row"><label>Health Check IP</label><input type="text" name="health_check_ip" id="mw-edit-health_check_ip"></div>
+      <div class="mod-form-row"><label>Metric Base</label><input type="number" name="metric_base" id="mw-edit-metric_base" min="10" max="9999"></div>
+      <div class="mod-form-row"><label>Notes</label><input type="text" name="notes" id="mw-edit-notes"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+        <button type="button" class="mod-action-btn ghost" onclick="closeModals()">Cancel</button>
+        <button type="submit" class="mod-action-btn primary">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="mod-modal-overlay" id="modal-addVlan" onclick="if(event.target===this)closeModals()">
+  <div class="mod-modal">
+    <h3>&#x1F517; Create VLAN</h3>
+    <form method="POST" action="/network/create-vlan">
+      <div class="mod-form-row"><label>Parent Interface</label>
+        <select name="parent" id="vlan-parent">
+          {% for opt in iface_opts %}
+          {% if opt.role in ('wan', 'lan', 'wifi') %}
+          <option value="{{ opt.value }}">{{ opt.label }}</option>
+          {% endif %}
+          {% endfor %}
+        </select>
+      </div>
+      <div class="mod-form-row"><label>VLAN ID (1-4094)</label><input type="number" name="vlan_id" min="1" max="4094" placeholder="100" required></div>
+      <div class="mod-form-row"><label>IP Address (CIDR, optional)</label><input type="text" name="ip_cidr" placeholder="192.168.100.1/24"></div>
+      <div class="mod-form-row"><label>Role</label>
+        <select name="role">
+          {% for rid, rinfo in roles.items() %}
+          {% if rid not in ('wan', 'vpn', 'unused') %}
+          <option value="{{ rid }}">{{ rinfo.icon }} {{ rinfo.label }} — {{ rinfo.desc }}</option>
+          {% endif %}
+          {% endfor %}
+        </select>
+      </div>
+      <div class="mod-form-row"><label>Label (optional)</label><input type="text" name="label" placeholder="Guest Network"></div>
+
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+        <button type="button" class="mod-action-btn ghost" onclick="closeModals()">Cancel</button>
+        <button type="submit" class="mod-action-btn success">Create VLAN</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="mod-modal-overlay" id="modal-addRoute" onclick="if(event.target===this)closeModals()">
+  <div class="mod-modal">
+    <h3>&#x1F6E0; Add Static Route</h3>
+    <form method="POST" action="/network/add-route">
+      <div class="mod-form-row"><label>Destination (e.g. 192.168.100.0/24 or default)</label><input type="text" name="dst" placeholder="192.168.100.0/24" required></div>
+      <div class="mod-form-row"><label>Via (Gateway)</label><input type="text" name="via" placeholder="192.168.1.1"></div>
+      <div class="mod-form-row"><label>Interface</label>
+        <select name="dev">
+          {% for iface in net.interfaces %}
+          <option value="{{ iface.name }}">{{ iface.name }} ({{ iface.ipv4 or iface.operstate }})</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="mod-form-row"><label>Metric</label><input type="number" name="metric" value="0" min="0"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+        <button type="button" class="mod-action-btn ghost" onclick="closeModals()">Cancel</button>
+        <button type="submit" class="mod-action-btn primary">Add Route</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function showNetTab(name,btn){
+  document.querySelectorAll('.page-tab').forEach(function(t){t.classList.remove('active')});
+  document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.remove('active')});
+  if(btn)btn.classList.add('active');
+  document.getElementById('net-'+name).classList.add('active');
+}
+function showModal(name){document.getElementById('modal-'+name).classList.add('show');}
+function closeModals(){document.querySelectorAll('.mod-modal-overlay').forEach(function(m){m.classList.remove('show');});}
+
+function mwToggleService(){
+  fetch('/network/multiwan/toggle-service',{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'}})
+  .then(r=>r.json()).then(d=>{showToast(d.message||'Done');setTimeout(()=>location.reload(),800);}).catch(e=>showToast('Error: '+e));
+}
+function mwCheckNow(){
+  fetch('/network/multiwan/check-now',{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'}})
+  .then(r=>r.json()).then(d=>{showToast(d.message||'Checked');setTimeout(()=>location.reload(),800);}).catch(e=>showToast('Error: '+e));
+}
+function mwApplyRouting(){
+  fetch('/network/multiwan/apply-routing',{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'}})
+  .then(r=>r.json()).then(d=>{showToast(d.message||'Applied');setTimeout(()=>location.reload(),800);}).catch(e=>showToast('Error: '+e));
+}
+function mwToggleIface(id,enabled){
+  fetch('/network/multiwan/toggle-iface',{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest','Content-Type':'application/x-www-form-urlencoded'},body:'id='+id+'&enabled='+enabled})
+  .then(r=>r.json()).then(d=>{showToast(d.message||'Done');setTimeout(()=>location.reload(),800);}).catch(e=>showToast('Error: '+e));
+}
+function deleteWan(id,name){
+  if(!confirm('Delete WAN interface "'+name+'"?'))return;
+  fetch('/network/multiwan/delete',{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest','Content-Type':'application/x-www-form-urlencoded'},body:'id='+id})
+  .then(r=>r.json()).then(d=>{showToast(d.message||'Deleted');setTimeout(()=>location.reload(),800);}).catch(e=>showToast('Error: '+e));
+}
+function editWan(id){
+  fetch('/api/multiwan/interface/'+id).then(r=>r.json()).then(d=>{
+    document.getElementById('mw-edit-id').value=d.id;
+    document.getElementById('mw-edit-name').value=d.name||'';
+    document.getElementById('mw-edit-display_name').value=d.display_name||'';
+    document.getElementById('mw-edit-interface').value=d.interface||'';
+    document.getElementById('mw-edit-gateway').value=d.gateway||'';
+    document.getElementById('mw-edit-role').value=d.role||'active';
+    document.getElementById('mw-edit-priority').value=d.priority||100;
+    document.getElementById('mw-edit-weight').value=d.weight||100;
+    document.getElementById('mw-edit-health_check_ip').value=d.health_check_ip||'8.8.8.8';
+    document.getElementById('mw-edit-metric_base').value=d.metric_base||100;
+    document.getElementById('mw-edit-notes').value=d.notes||'';
+    showModal('editWan');
+  }).catch(e=>showToast('Error loading interface: '+e));
+}
+function mwSaveEdit(e){
+  e.preventDefault();
+  var fd=new FormData(document.getElementById('mw-edit-form'));
+  fetch('/network/multiwan/edit',{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'},body:new URLSearchParams(fd)})
+  .then(r=>r.json()).then(d=>{showToast(d.message||'Saved');closeModals();setTimeout(()=>location.reload(),800);}).catch(e2=>showToast('Error: '+e2));
+  return false;
+}
+function mwSaveSettings(e){
+  e.preventDefault();
+  var fd=new FormData(document.getElementById('mw-settings-form'));
+  fetch('/network/multiwan/save-settings',{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'},body:new URLSearchParams(fd)})
+  .then(r=>r.json()).then(d=>{showToast(d.message||'Saved');}).catch(e2=>showToast('Error: '+e2));
+  return false;
+}
+</script>
+{% endblock %}

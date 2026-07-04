@@ -1,0 +1,70 @@
+# ===== Runtime data (never commit) =====
+data/*
+!data/.gitkeep
+
+# ===== Backups =====
+backups/
+backup_*/
+etc_backup*/
+*.bak
+*.bak.*
+*.db.bak
+*.db.malformed*
+
+# ===== Databases =====
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# ===== GeoIP databases (downloaded by installer) =====
+*.mmdb
+aegisgate-geoip.tar.gz
+
+# ===== Secrets / credentials =====
+data/auth.json
+data/config.json
+data/allowlist.json
+data/auto-ban-config.json
+data/sessions.json
+data/env
+data/dns_settings.json
+data/ifaces.json
+*.key
+*.pem
+*.crt
+*.p12
+*.pfx
+.env
+.env.*
+
+# ===== Python cache =====
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ===== Demo / docs site (kept separately, too large for main repo) =====
+AegisDocs/
+DemoWeb/
+
+# ===== OS / editor junk =====
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+*.sublime-*
+
+# ===== Logs =====
+*.log
+/var/log/ram/
+logs/
+
+# ===== Install artifacts =====
+install.base.sh

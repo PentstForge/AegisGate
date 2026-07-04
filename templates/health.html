@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block title %}System Health{% endblock %}
+{% block page_title %}System Health{% endblock %}
+{% block content %}
+<style>
+.gauge-card{background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:16px;flex:1;min-width:180px;text-align:center}
+.gauge-card .label{font-size:11px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+.gauge-card .value{font-size:28px;font-weight:700}
+.gauge-card .sub{font-size:11px;color:var(--text-muted);margin-top:4px}
+.gauge-card .bar-bg{height:8px;background:var(--bg-tertiary);border-radius:4px;margin-top:8px;overflow:hidden}
+.gauge-card .bar-fill{height:8px;border-radius:4px;transition:width .5s}
+.alert-ok{color:var(--success)}
+.alert-warning{color:var(--warning)}
+.alert-critical{color:var(--danger)}
+.bar-ok{background:var(--success)}
+.bar-warning{background:var(--warning)}
+.bar-critical{background:var(--danger)}
+.bar-info{background:var(--info)}
+.svc-grid-health{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
+.svc-item{background:var(--bg-tertiary);border-radius:6px;padding:8px 12px;display:flex;justify-content:space-between;align-items:center}
+.svc-item .dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:6px}
+.dot-ok{background:var(--success)}
+.dot-fail{background:var(--danger)}
+.gauge-row{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+</style>
+
+<section class="page-hero">
+<div class="page-hero-top">
+  <div>
+    <div class="page-kicker">Resource Gauges</div>
+    <div class="page-title">System Diagnostics</div>
+    <div class="page-subtitle">Real-time CPU, memory, disk, network and service monitoring for the AegisGate host.</div>
+  </div>
+  <div class="page-state-pill {% if health.cpu_alert=='ok' and health.mem_alert=='ok' %}active{% else %}stopped{% endif %}">
+    <span class="state-dot"></span>
+    <span>{% if health.cpu_alert=='ok' and health.mem_alert=='ok' %}Healthy{% else %}Attention{% endif %}</span>
+  </div>
+</div>
+<div class="kpi-grid">
+  <div class="kpi-card {% if health.cpu_usage_alert=='critical' %}danger{% elif health.cpu_usage_alert=='warning' %}warn{% else %}success{% endif %}"><div class="kpi-label">CPU Usage</div><div class="kpi-value">{{ health.cpu_usage }}%</div><div class="kpi-note">{{ 'Normal' if health.cpu_usage_alert == 'ok' else ('Warning' if health.cpu_usage_alert == 'warning' else 'Critical!') }}</div></div>
+  <div class="kpi-card {% if health.cpu_alert=='critical' %}danger{% elif health.cpu_alert=='warning' %}warn{% else %}success{% endif %}"><div class="kpi-label">CPU Temp</div><div class="kpi-value">{{ health.cpu_temp }}&#176;C</div><div class="kpi-note">{{ 'Normal' if health.cpu_alert == 'ok' else ('Warning' if health.cpu_alert == 'warning' else 'Critical!') }}</div></div>
+  <div class="kpi-card {% if health.mem_alert=='critical' %}danger{% elif health.mem_alert=='warning' %}warn{% else %}success{% endif %}"><div class="kpi-label">Memory</div><div class="kpi-value">{{ health.memory.pct }}%</div><div class="kpi-note">{{ health.memory.used_mb }} / {{ health.memory.total_mb }} MB</div></div>
+  <div class="kpi-card accent"><div class="kpi-label">Load Avg</div><div class="kpi-value">{{ health.load[0] }}</div><div class="kpi-note">1m / 5m / 15m</div></div>
+  <div class="kpi-card"><div class="kpi-label">Uptime</div><div class="kpi-value" style="font-size:16px">{{ health.uptime }}</div><div class="kpi-note">Since boot</div></div>
+</div>
+</section>
+
+<section class="page-toolbar">
+<div class="page-tabs">
+   <button class="page-tab active" onclick="switchTab('overview',this)">Overview</button>
+   <button class="page-tab" onclick="switchTab('disk',this)">Disk</button>
+   <button class="page-tab" onclick="switchTab('network',this)">Network</button>
+   <button class="page-tab" onclick="switchTab('services',this)">Services</button>
+   <button class="page-tab" onclick="switchTab('suricata',this)">Suricata</button>
+ </div>
+</section>
+
+<div id="tab-overview" class="tab-panel active">
+<div class="panel-card">
+  <div class="panel-card-title">Conntrack <span>connections</span></div>
+  <div style="display:flex;align-items:center;gap:12px">
+    <span style="font-size:24px;font-weight:700">{{ health.conntrack.count }} / {{ health.conntrack.limit }}</span>
+    <span style="font-size:14px">({{ health.conntrack.pct }}%)</span>
+    <div style="flex:1"><div class="bar-bg" style="background:var(--bg-tertiary);border-radius:4px;overflow:hidden"><div class="bar-fill {{ 'bar-' + health.ct_alert }}" style="width:{{ health.conntrack.pct }}%"></div></div></div>
+  </div>
+</div>
+
+<div class="panel-card">
+  <div class="panel-card-title">Swap <span>virtual memory</span></div>
+  <span style="font-size:16px">{{ health.memory.swap_used_mb }} / {{ health.memory.swap_total_mb }} MB ({{ health.memory.swap_pct }}%)</span>
+</div>
+</div>
+
+<div id="tab-disk" class="tab-panel">
+<div class="panel-card">
+  <div class="panel-card-title">Disk Usage <span>{{ health.disk|length }} mount{{ 's' if health.disk|length != 1 }}</span></div>
+  {% for path, disk in health.disk.items() %}
+  <div style="margin-bottom:12px">
+    <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px">
+      <span style="font-weight:600">{{ path }}</span>
+      <span style="color:var(--text-secondary)">{{ disk.used_gb }} / {{ disk.total_gb }} GB ({{ disk.pct }}%)</span>
+    </div>
+    <div class="bar-bg" style="background:var(--bg-tertiary);border-radius:4px;overflow:hidden"><div class="bar-fill {{ 'bar-' + ('critical' if disk.pct > 95 else ('warning' if disk.pct > 85 else 'ok')) }}" style="width:{{ disk.pct }}%"></div></div>
+  </div>
+  {% endfor %}
+</div>
+</div>
+
+<div id="tab-network" class="tab-panel">
+<div class="panel-card">
+  <div class="panel-card-title">Network Interfaces <span>{{ health.network|length }}</span></div>
+  <div class="tbl-wrap">
+  <table class="mod-table">
+    <thead><tr><th>Interface</th><th>Type</th><th>RX</th><th>TX</th><th>RX Drops</th><th>TX Drops</th><th>RX Errors</th><th>TX Errors</th></tr></thead>
+    {% for iface, data in health.network.items() %}
+    <tr>
+      <td><b>{{ iface }}</b></td>
+      <td>{{ data.type }}</td>
+      <td>{{ "%.1f"|format(data.rx_bytes / 1048576) }} MB</td>
+      <td>{{ "%.1f"|format(data.tx_bytes / 1048576) }} MB</td>
+      <td class="{{ 'alert-critical' if data.rx_drops > 100 else ('alert-warning' if data.rx_drops > 0 else '') }}">{{ data.rx_drops }}</td>
+      <td class="{{ 'alert-critical' if data.tx_drops > 100 else ('alert-warning' if data.tx_drops > 0 else '') }}">{{ data.tx_drops }}</td>
+      <td>{{ data.rx_errors }}</td>
+      <td>{{ data.tx_errors }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+</div>
+</div>
+
+<div id="tab-services" class="tab-panel">
+<div class="panel-card">
+  <div class="panel-card-title">Services <span>{{ health.services|length }}</span></div>
+  <div class="svc-grid-health">
+    {% for svc in health.services %}
+    <div class="svc-item">
+      <span><span class="dot {{ 'dot-ok' if svc.status == 'active' else 'dot-fail' }}"></span>{{ svc.name }}</span>
+      <span class="{{ 'alert-ok' if svc.status == 'active' else 'alert-critical' }}">{{ svc.status }}</span>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+</div>
+
+<div id="tab-suricata" class="tab-panel">
+<div class="panel-card">
+  <div class="panel-card-title">Suricata IDS <span>intrusion detection</span></div>
+  <p>Rules loaded: <b>{{ health.suricata_rules }}</b> &middot; Mode: <b>{{ health.suricata_mode }}</b></p>
+</div>
+</div>
+
+<script>
+function switchTab(tab,btn){document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));document.querySelectorAll('.page-tab').forEach(b=>b.classList.remove('active'));document.getElementById('tab-'+tab).classList.add('active');btn.classList.add('active')}
+</script>
+{% endblock %}

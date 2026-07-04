@@ -1,0 +1,263 @@
+{% extends "base.html" %}
+{% block title %}DNS Query Log — AegisGate{% endblock %}
+{% block page_title %}Query Log{% endblock %}
+{% block head %}
+<style>
+.log-controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+.log-controls select,.log-controls input{padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-tertiary);color:var(--text-primary);font-size:12px}
+.log-controls input{min-width:200px}
+.log-controls .btn-icon{padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg-tertiary);color:var(--text-primary);cursor:pointer;font-size:13px;transition:all .15s}
+.log-controls .btn-icon:hover{border-color:var(--accent);color:var(--accent)}
+.log-controls .btn-icon.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.log-stats{display:flex;gap:16px;font-size:12px;color:var(--text-secondary);margin-bottom:8px}
+.log-stats span{display:flex;align-items:center;gap:4px}
+.log-stats .dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+.log-table{width:100%;border-collapse:collapse;font-size:12px}
+.log-table th{text-align:left;padding:8px 10px;background:var(--bg-tertiary);color:var(--text-secondary);font-size:10px;text-transform:uppercase;border-bottom:2px solid var(--border);position:sticky;top:0;z-index:1}
+.log-table td{padding:6px 10px;border-bottom:1px solid var(--border);vertical-align:middle}
+.log-table tr:hover{background:var(--bg-tertiary)}
+.log-table .domain{font-family:monospace;font-size:12px;color:var(--text-primary);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block}
+.log-table .client{font-family:monospace;font-size:11px;color:var(--text-secondary)}
+.log-table .time{font-size:11px;color:var(--text-muted);white-space:nowrap}
+.badge-allow{background:#22c55e;color:#fff;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700}
+.badge-block{background:#ef4444;color:#fff;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700}
+.badge-forwarded{background:#3b82f6;color:#fff;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700}
+.badge-reply{background:#8b5cf6;color:#fff;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700}
+.badge-query{background:var(--bg-tertiary);color:var(--text-secondary);padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700}
+.detail-row td{background:var(--bg-card);padding:12px 16px}
+.detail-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px}
+.detail-item{font-size:11px}
+.detail-item .label{color:var(--text-muted);font-size:10px;text-transform:uppercase}
+.detail-item .value{color:var(--text-primary);font-weight:600}
+.log-pager{display:flex;align-items:center;gap:8px;justify-content:center;margin:12px 0;font-size:12px}
+.log-pager button{padding:6px 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg-tertiary);color:var(--text-primary);cursor:pointer}
+.log-pager button:hover{border-color:var(--accent)}
+.log-pager button:disabled{opacity:.4;cursor:default}
+.auto-refresh{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-secondary)}
+.auto-refresh input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent)}
+.log-scroll{max-height:calc(100vh - 220px);overflow-y:auto;border:1px solid var(--border);border-radius:8px;margin-bottom:5px}
+.empty-log{text-align:center;padding:40px;color:var(--text-muted)}
+.empty-log .icon{font-size:48px;margin-bottom:8px}
+</style>
+{% endblock %}
+{% block content %}
+<section class="page-hero">
+  <div class="page-hero-top">
+    <div>
+      <div class="page-kicker">Aegis DNS</div>
+      <div class="page-title">Query Log</div>
+      <div class="page-subtitle">Real-time DNS query log with filtering — see who, what, where, and why queries are blocked or allowed.</div>
+    </div>
+    <div class="page-actions">
+      <label class="auto-refresh"><input type="checkbox" id="autoRefresh" checked> Auto-refresh</label>
+      <button class="mod-action-btn primary" onclick="loadQueries()">Refresh Now</button>
+      <button class="mod-action-btn ghost" onclick="importLog()">Import from Log</button>
+    </div>
+  </div>
+  <div id="log-stats" class="log-stats"></div>
+</section>
+
+<div class="log-controls">
+  <input type="search" id="filterDomain" placeholder="Filter domain..." oninput="debounceLoad()">
+  <input type="search" id="filterClient" placeholder="Filter client IP..." oninput="debounceLoad()">
+  <select id="filterAction" onchange="loadQueries()">
+    <option value="">All Actions</option>
+    <option value="allow">Allowed</option>
+    <option value="block">Blocked</option>
+    <option value="forwarded">Forwarded</option>
+    <option value="reply">Reply</option>
+    <option value="query">Query</option>
+  </select>
+  <select id="filterQtype" onchange="loadQueries()">
+    <option value="">All Types</option>
+    <option value="A">A</option>
+    <option value="AAAA">AAAA</option>
+    <option value="CNAME">CNAME</option>
+    <option value="MX">MX</option>
+    <option value="TXT">TXT</option>
+    <option value="SRV">SRV</option>
+    <option value="PTR">PTR</option>
+    <option value="HTTPS">HTTPS</option>
+  </select>
+  <select id="filterLimit" onchange="loadQueries()">
+    <option value="50">50 rows</option>
+    <option value="100" selected>100 rows</option>
+    <option value="250">250 rows</option>
+    <option value="500">500 rows</option>
+  </select>
+  <button class="btn-icon" onclick="exportLog()">Export CSV</button>
+  <button class="btn-icon" onclick="clearLog()" style="color:var(--danger)">Clear Log</button>
+</div>
+
+<div class="log-scroll">
+  <table class="log-table">
+    <thead>
+      <tr>
+        <th style="width:130px">Time</th>
+        <th>Domain</th>
+        <th style="width:120px">Client</th>
+        <th style="width:50px">Type</th>
+        <th style="width:80px">Action</th>
+        <th style="width:120px">Reason / Rule</th>
+        <th style="width:80px">Response</th>
+      </tr>
+    </thead>
+    <tbody id="log-body">
+      <tr><td colspan="7" class="empty-log"><div class="icon">&#x1f50d;</div><div>Click "Refresh Now" or enable auto-refresh to load queries</div></td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="log-pager" id="log-pager">
+  <button id="prevBtn" onclick="prevPage()" disabled>&larr; Prev</button>
+  <span id="pageInfo">Page 1</span>
+  <button id="nextBtn" onclick="nextPage()">Next &rarr;</button>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+var _offset=0,_limit=100,_timer=null,_debounce=null;
+function debounceLoad(){clearTimeout(_debounce);_debounce=setTimeout(loadQueries,300);}
+function loadQueries(){
+  var domain=document.getElementById('filterDomain').value.trim();
+  var client=document.getElementById('filterClient').value.trim();
+  var action=document.getElementById('filterAction').value;
+  var qtype=document.getElementById('filterQtype').value;
+  _limit=parseInt(document.getElementById('filterLimit').value)||100;
+  var params='limit='+_limit+'&offset='+_offset;
+  if(domain)params+='&domain='+encodeURIComponent(domain);
+  if(client)params+='&client='+encodeURIComponent(client);
+  if(action)params+='&action='+encodeURIComponent(action);
+  if(qtype)params+='&qtype='+encodeURIComponent(qtype);
+  fetch('/api/dns/queries?'+params).then(function(r){return r.json();}).then(function(data){
+    renderLog(data);
+    updatePager();
+  }).catch(function(e){document.getElementById('log-body').innerHTML='<tr><td colspan="7" class="empty-log" style="color:var(--danger)">Error: '+e.message+'</td></tr>';});
+}
+function renderLog(data){
+  if(!data||data.length===0){
+    document.getElementById('log-body').innerHTML='<tr><td colspan="7" class="empty-log"><div class="icon">&#x1f4cb;</div><div>No queries found. Import logs first or wait for new queries.</div></td></tr>';
+    document.getElementById('log-stats').innerHTML='';
+    return;
+  }
+  var allowCount=0,blockCount=0,fwdCount=0,otherCount=0;
+  var html='';
+  data.forEach(function(q){
+    var ts=q.ts?new Date(q.ts*1000).toLocaleString():'';
+    var tsShort=q.ts?new Date(q.ts*1000).toLocaleTimeString():'';
+    var actionClass={'allow':'badge-allow','block':'badge-block','forwarded':'badge-forwarded','reply':'badge-reply','query':'badge-query'}[q.action]||'badge-query';
+    var actionLabel={'allow':'Allow','block':'Blocked','forwarded':'Forwarded','reply':'Reply','query':'Query'}[q.action]||q.action;
+    if(q.action==='allow')allowCount++;
+    else if(q.action==='block')blockCount++;
+    else if(q.action==='forwarded')fwdCount++;
+    else otherCount++;
+    var domain=esc(q.domain||'');
+    var domainFull=esc(q.domain||'');
+    if(domain.length>40)domain=domain.substring(0,40)+'...';
+    var client=esc(q.client_ip||'');
+    var qtype=esc(q.qtype||'A');
+    var reason=esc(q.reason||'');
+    var response=esc(q.response||'');
+    if(response.length>30)response=response.substring(0,30)+'...';
+    html+='<tr onclick="toggleDetail('+q.id+')" style="cursor:pointer" title="Click for details">';
+    html+='<td class="time" title="'+ts+'">'+tsShort+'</td>';
+    html+='<td><span class="domain" title="'+domainFull+'">'+domain+'</span></td>';
+    html+='<td><span class="client">'+client+'</span></td>';
+    html+='<td>'+qtype+'</td>';
+    html+='<td><span class="'+actionClass+'">'+actionLabel+'</span></td>';
+    html+='<td style="font-size:11px;color:var(--text-secondary)">'+reason+'</td>';
+    html+='<td style="font-family:monospace;font-size:11px;color:var(--text-muted)">'+response+'</td>';
+    html+='</tr>';
+    html+='<tr id="detail-'+q.id+'" class="detail-row" style="display:none"><td colspan="7">';
+    html+='<div class="detail-grid">';
+    html+='<div class="detail-item"><div class="label">Full Domain</div><div class="value" style="font-family:monospace">'+domainFull+'</div></div>';
+    html+='<div class="detail-item"><div class="label">Client IP</div><div class="value" style="font-family:monospace">'+client+'</div></div>';
+    html+='<div class="detail-item"><div class="label">Query Type</div><div class="value">'+qtype+'</div></div>';
+    html+='<div class="detail-item"><div class="label">Action</div><div class="value"><span class="'+actionClass+'">'+actionLabel+'</span></div></div>';
+    html+='<div class="detail-item"><div class="label">Reason</div><div class="value">'+reason+'</div></div>';
+    html+='<div class="detail-item"><div class="label">Response</div><div class="value" style="font-family:monospace">'+response+'</div></div>';
+    html+='<div class="detail-item"><div class="label">Upstream</div><div class="value">'+esc(q.upstream||'-')+'</div></div>';
+    html+='<div class="detail-item"><div class="label">Latency</div><div class="value">'+(q.latency_ms?q.latency_ms+'ms':'-')+'</div></div>';
+    html+='<div class="detail-item"><div class="label">Timestamp</div><div class="value">'+ts+'</div></div>';
+    html+='<div class="detail-item"><div class="label">MAC</div><div class="value">'+esc(q.client_mac||'-')+'</div></div>';
+    html+='<div class="detail-item"><div class="label">Policy</div><div class="value">'+esc(q.policy||'-')+'</div></div>';
+    html+='<div class="detail-item"><div class="label">Rule ID</div><div class="value">'+(q.rule_id||'-')+'</div></div>';
+    html+='<div class="detail-item"><div class="label">List ID</div><div class="value">'+(q.list_id||'-')+'</div></div>';
+    html+='<div class="detail-item"><div class="label">RCode</div><div class="value">'+esc(q.rcode||'-')+'</div></div>';
+    html+='<div class="detail-item"><div class="label">Categories</div><div class="value">'+esc(q.blocked_categories||'-')+'</div></div>';
+    html+='</div></td></tr>';
+  });
+  document.getElementById('log-body').innerHTML=html;
+  document.getElementById('log-stats').innerHTML=
+    '<span><span class="dot" style="background:#22c55e"></span> Allowed: '+allowCount+'</span>'+
+    '<span><span class="dot" style="background:#ef4444"></span> Blocked: '+blockCount+'</span>'+
+    '<span><span class="dot" style="background:#3b82f6"></span> Forwarded: '+fwdCount+'</span>'+
+    '<span><span class="dot" style="background:#8b5cf6"></span> Other: '+otherCount+'</span>'+
+    '<span>Total: '+data.length+'</span>';
+}
+function toggleDetail(id){
+  var row=document.getElementById('detail-'+id);
+  if(row)row.style.display=row.style.display==='none'?'':'none';
+}
+function nextPage(){_offset+=_limit;loadQueries();}
+function prevPage(){if(_offset>0){_offset=Math.max(0,_offset-_limit);loadQueries();}}
+function updatePager(){
+  document.getElementById('pageInfo').textContent='Page '+Math.floor(_offset/_limit+1)+' (offset '+_offset+')';
+  document.getElementById('prevBtn').disabled=_offset<=0;
+  document.getElementById('nextBtn').disabled=false;
+}
+function importLog(){
+  fetch('/api/dns/import-log',{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'}}).then(function(r){return r.json();}).then(function(d){
+    showToast(d.imported+' queries imported ('+d.total+' parsed)');
+    setTimeout(loadQueries,500);
+  }).catch(function(e){showToast('Error: '+e.message,'error');});
+}
+function clearLog(){
+  if(!confirm('Clear all DNS query logs? This cannot be undone.'))return;
+  fetch('/api/dns/queries/clear',{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'}}).then(function(r){return r.json();}).then(function(d){
+    showToast('Cleared '+(d.cleared||d.deleted||0)+' entries');
+    loadQueries();
+  }).catch(function(e){showToast('Error: '+e.message,'error');});
+}
+function exportLog(){
+  var domain=document.getElementById('filterDomain').value.trim();
+  var client=document.getElementById('filterClient').value.trim();
+  var action=document.getElementById('filterAction').value;
+  var qtype=document.getElementById('filterQtype').value;
+  var params='limit=10000&offset=0';
+  if(domain)params+='&domain='+encodeURIComponent(domain);
+  if(client)params+='&client='+encodeURIComponent(client);
+  if(action)params+='&action='+encodeURIComponent(action);
+  if(qtype)params+='&qtype='+encodeURIComponent(qtype);
+  fetch('/api/dns/queries?'+params).then(function(r){return r.json();}).then(function(data){
+    var csv='Time,Domain,Client,Type,Action,Reason,Response,Upstream\n';
+    data.forEach(function(q){
+      csv+='"'+(q.ts?new Date(q.ts*1000).toISOString():'')+'","'+(q.domain||'')+'","'+(q.client_ip||'')+'","'+(q.qtype||'')+'","'+(q.action||'')+'","'+(q.reason||'')+'","'+(q.response||'')+'","'+(q.upstream||'')+'"\n';
+    });
+    var blob=new Blob([csv],{type:'text/csv'});
+    var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='dns-queries-'+new Date().toISOString().slice(0,10)+'.csv';a.click();
+  }).catch(function(e){showToast('Export error: '+e.message,'error');});
+}
+var _toastTimer=null;
+function showToast(msg,type){
+  type=type||'ok';
+  var t=document.getElementById('log-toast');
+  if(!t){t=document.createElement('div');t.id='log-toast';t.style.cssText='position:fixed;top:18px;right:18px;z-index:9999;padding:12px 22px;border-radius:10px;font-size:13px;font-weight:600;color:#fff;box-shadow:0 4px 20px rgba(0,0,0,.25);transition:opacity .3s;pointer-events:none;';document.body.appendChild(t);}
+  t.textContent=msg;t.style.background=type==='error'?'#ef4444':'#22c55e';t.style.opacity='1';
+  clearTimeout(_toastTimer);_toastTimer=setTimeout(function(){t.style.opacity='0';},3000);
+}
+function esc(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+function startAutoRefresh(){
+  if(_timer)clearInterval(_timer);
+  if(document.getElementById('autoRefresh').checked){
+    _timer=setInterval(loadQueries,5000);
+  }
+}
+document.addEventListener('DOMContentLoaded',function(){
+  loadQueries();
+  document.getElementById('autoRefresh').addEventListener('change',startAutoRefresh);
+  startAutoRefresh();
+});
+</script>
+{% endblock %}

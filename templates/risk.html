@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}Risk Score{% endblock %}
+{% block page_title %}Risk Score{% endblock %}
+{% block content %}
+<style>
+.risk-badge{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:50%;font-weight:700;font-size:14px}
+.risk-low{background:rgba(63,185,80,0.2);color:var(--success)}
+.risk-medium{background:rgba(210,153,34,0.2);color:var(--warning)}
+.risk-high{background:rgba(248,81,73,0.2);color:var(--danger)}
+.risk-critical{background:rgba(248,81,73,0.4);color:#ff4444}
+</style>
+
+<section class="page-hero">
+<div class="page-hero-top">
+  <div>
+    <div class="page-kicker">Threat risk scoring</div>
+    <div class="page-title">Risk Score</div>
+    <div class="page-subtitle">Aggregated threat scores for source IPs based on firewall drops, SSH brute-force, CrowdSec and Suricata signals.</div>
+  </div>
+  <div class="page-state-pill {% if risks %}active{% else %}stopped{% endif %}">
+    <span class="state-dot"></span>
+    <span>{% if risks %}{{ risks|length }} IPs tracked{% else %}No data{% endif %}</span>
+  </div>
+</div>
+<div class="kpi-grid">
+  <div class="kpi-card accent"><div class="kpi-label">Total IPs</div><div class="kpi-value">{{ risks|length }}</div><div class="kpi-note">Tracked sources</div></div>
+  <div class="kpi-card danger"><div class="kpi-label">Critical</div><div class="kpi-value">{{ critical_count }}</div><div class="kpi-note">Score 76&#x2013;100</div></div>
+  <div class="kpi-card warn"><div class="kpi-label">High</div><div class="kpi-value">{{ high_count }}</div><div class="kpi-note">Score 51&#x2013;75</div></div>
+  <div class="kpi-card" style="--kpi-color:var(--warning)"><div class="kpi-label">Medium</div><div class="kpi-value" style="color:var(--warning)">{{ medium_count }}</div><div class="kpi-note">Score 26&#x2013;50</div></div>
+  <div class="kpi-card success"><div class="kpi-label">Low</div><div class="kpi-value">{{ low_count }}</div><div class="kpi-note">Score 0&#x2013;25</div></div>
+</div>
+</section>
+
+<section class="page-toolbar">
+<div class="page-actions">
+  <form method="get" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+    <input type="text" name="q" placeholder="Filter by IP, tag..." value="{{ query }}" style="width:220px">
+    <select name="level">
+      <option value="">All levels</option>
+      <option value="low" {% if level_filter=='low' %}selected{% endif %}>Low (0-25)</option>
+      <option value="medium" {% if level_filter=='medium' %}selected{% endif %}>Medium (26-50)</option>
+      <option value="high" {% if level_filter=='high' %}selected{% endif %}>High (51-75)</option>
+      <option value="critical" {% if level_filter=='critical' %}selected{% endif %}>Critical (76-100)</option>
+    </select>
+    <button type="submit" class="mod-action-btn primary">Filter</button>
+    <button type="submit" name="refresh" value="1" class="mod-action-btn ghost" style="background:var(--warning);color:#fff;border-color:var(--warning)">Refresh</button>
+  </form>
+</div>
+</section>
+
+{% if risks %}
+<div class="panel-card" style="margin-top:14px">
+  <div class="panel-card-title">Risk Table <span>{{ risks|length }} entries</span></div>
+  <div class="tbl-wrap" style="max-height:600px">
+  <table class="mod-table">
+    <thead><tr><th>Risk</th><th>IP</th><th>Tags</th><th>Hits</th><th>Ports</th><th>SSH Fails</th><th>CS</th><th>Suric</th><th>Score Breakdown</th></tr></thead>
+    {% for r in risks %}
+    <tr>
+      <td><div class="risk-badge risk-{{ r.level }}">{{ r.score }}</div></td>
+      <td><a href="/?tab=drops&q={{ r.ip }}" style="font-family:monospace;color:var(--accent)">{{ r.ip }}</a></td>
+      <td>
+        {% for tag in r.tags %}
+        <span class="mod-badge {% if tag=='scanner' %}blue{% elif tag=='bruteforce' %}red{% elif tag=='crowdsec' %}yellow{% elif tag=='suricata' %}green{% elif tag=='repeat' %}purple{% else %}gray{% endif %}">{{ tag }}</span>
+        {% endfor %}
+      </td>
+      <td>{{ r.hits }}</td>
+      <td>{{ r.unique_ports }}</td>
+      <td>{{ r.ssh_fail_count }}</td>
+      <td>{% if r.in_crowdsec %}<span class="mod-badge yellow">YES</span>{% else %}<span style="color:var(--text-muted)">&#x2014;</span>{% endif %}</td>
+      <td>{% if r.in_suricata %}<span class="mod-badge green">YES</span>{% else %}<span style="color:var(--text-muted)">&#x2014;</span>{% endif %}</td>
+      <td style="font-size:10px;color:var(--text-secondary)">base:{{ r.details.base_score }} port:{{ r.details.port_score }} brute:{{ r.details.brute_score }} cs:{{ r.details.cs_score }} suric:{{ r.details.suric_score }} repeat:{{ r.details.repeat_score }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+</div>
+{% else %}
+<div class="mod-empty-state" style="margin-top:14px">
+  <div class="icon">&#x1F6E1;</div>
+  <p>No risk data available</p>
+</div>
+{% endif %}
+{% endblock %}

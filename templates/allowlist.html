@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block title %}Allowlist{% endblock %}
+{% block page_title %}Allowlist{% endblock %}
+{% block content %}
+<style>
+.allow-page{display:flex;flex-direction:column;gap:14px}
+.emergency-card{border-radius:16px;padding:16px;margin-bottom:0;border:1px solid;box-shadow:0 8px 22px rgba(0,0,0,.10)}
+.emergency-card.on{background:color-mix(in srgb,var(--danger) 10%,var(--bg-card));border-color:color-mix(in srgb,var(--danger) 40%,var(--border));box-shadow:0 8px 22px color-mix(in srgb,var(--danger) 8%,transparent)}
+.emergency-card.off{background:color-mix(in srgb,var(--success) 6%,var(--bg-card));border-color:color-mix(in srgb,var(--success) 30%,var(--border))}
+.emergency-card h3{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:15px;font-weight:850}
+.emergency-card .emergency-desc{font-size:12px;color:var(--text-secondary);margin-bottom:12px;line-height:1.5}
+</style>
+
+<div class="allow-page">
+
+<section class="page-hero">
+  <div class="page-hero-top">
+    <div>
+      <div class="page-kicker">IP allowlisting</div>
+      <div class="page-title">Allowlist</div>
+      <div class="page-subtitle">Manage trusted IPs and networks that bypass firewall restrictions. Use emergency bypass only if locked out.</div>
+    </div>
+    <div class="page-state-pill {% if emergency %}stopped{% else %}active{% endif %}" id="allow-state-pill">
+      <span class="state-dot"></span><span id="allow-state-label">{% if emergency %}Bypass ON{% else %}Secure{% endif %}</span>
+    </div>
+  </div>
+  <div class="kpi-grid">
+    <div class="kpi-card accent">
+      <div class="kpi-label">Total Entries</div>
+      <div class="kpi-value">{{ entries|length }}</div>
+      <div class="kpi-note">IPs &amp; networks</div>
+    </div>
+    <div class="kpi-card success">
+      <div class="kpi-label">Protected</div>
+      <div class="kpi-value">{{ entries|selectattr('protected','true')|list|length }}</div>
+      <div class="kpi-note">System entries</div>
+    </div>
+    <div class="kpi-card {% if emergency %}danger{% else %}success{% endif %}">
+      <div class="kpi-label">Emergency Bypass</div>
+      <div class="kpi-value">{% if emergency %}ON{% else %}OFF{% endif %}</div>
+      <div class="kpi-note">{% if emergency %}All checks bypassed{% else %}Normal operation{% endif %}</div>
+    </div>
+  </div>
+</section>
+
+{% if message %}
+<div class="flash-banner {% if message_error %}error{% endif %}">{{ message }}</div>
+{% endif %}
+
+<div class="emergency-card {% if emergency %}on{% else %}off{% endif %}">
+  <h3>
+    {% if emergency %}<span style="color:var(--danger)">&#x26A0;</span>{% else %}<span style="color:var(--success)">&#x1F6E1;</span>{% endif %}
+    Emergency Bypass: {% if emergency %}ON{% else %}OFF{% endif %}
+  </h3>
+  <div class="emergency-desc">
+    {% if emergency %}
+    <span style="color:var(--danger);font-weight:700;">WARNING: Emergency bypass is active. All allowlisted IPs skip ALL security checks.</span>
+    {% else %}
+    When enabled, all allowlisted IPs bypass blacklist and CrowdSec checks. Use only if locked out.
+    {% endif %}
+  </div>
+  <form method="post" action="/allowlist/emergency" style="margin:0">
+    {% if emergency %}
+    <button type="submit" name="action" value="disable" class="mod-action-btn success">&#x2713; Disable Emergency Bypass</button>
+    {% else %}
+    <button type="submit" name="action" value="enable" class="mod-action-btn danger">&#x26A0; Enable Emergency Bypass</button>
+    {% endif %}
+  </form>
+  {% if emergency_since %}
+  <p style="font-size:11px;color:var(--text-muted);margin-top:8px;">Active since: {{ emergency_since }}</p>
+  {% endif %}
+</div>
+
+<div class="panel-card">
+  <div class="panel-card-title">Add to Allowlist <span>IP or network</span></div>
+  <form method="post" action="/allowlist/add" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0">
+    <input type="text" name="value" placeholder="IP address or network (e.g. 1.2.3.4 or 10.0.0.0/24)" style="flex:2;min-width:200px;padding:9px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-primary);color:var(--text-primary);font-size:13px" required>
+    <input type="text" name="comment" placeholder="Comment" style="flex:1;min-width:140px;padding:9px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-primary);color:var(--text-primary);font-size:13px">
+    <select name="type" style="padding:9px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-primary);color:var(--text-primary);font-size:13px">
+      <option value="ip">IP</option>
+      <option value="network">Network</option>
+    </select>
+    <button type="submit" class="mod-action-btn primary">Add</button>
+  </form>
+</div>
+
+<div class="panel-card">
+  <div class="panel-card-title">Allowlist Entries <span>{{ entries|length }} total</span></div>
+  <div class="tbl-wrap" style="max-height:500px">
+    <table class="mod-table">
+      <thead><tr><th>Type</th><th>Value</th><th>Comment</th><th>Added</th><th>Action</th></tr></thead>
+      <tbody>
+      {% for entry in entries %}
+      <tr {% if entry.protected %}style="opacity:.7"{% endif %}>
+        <td><span class="mod-badge {% if entry.type=='network' %}blue{% else %}gray{% endif %}">{{ entry.type }}</span></td>
+        <td style="font-family:'JetBrains Mono','SFMono-Regular',Consolas,monospace;font-size:12px">{{ entry.value }}{% if entry.protected %}<span class="mod-badge green" style="margin-left:4px">PROTECTED</span>{% endif %}</td>
+        <td>{{ entry.comment }}</td>
+        <td style="font-size:11px;color:var(--text-muted)">{{ entry.get('added_at', '&#x2014;') }}</td>
+        <td>{% if not entry.protected %}
+          <form method="post" action="/allowlist/remove" style="display:inline;margin:0">
+            <input type="hidden" name="value" value="{{ entry.value }}">
+            <input type="hidden" name="type" value="{{ entry.type }}">
+            <button type="submit" class="mod-action-btn danger" style="font-size:11px;padding:4px 10px">Remove</button>
+          </form>
+          {% else %}<span style="color:var(--text-muted);font-size:11px">System</span>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+</div>
+{% endblock %}

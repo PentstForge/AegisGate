@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ theme }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login — AegisGate</title>
+    <style>
+        :root{--bg-primary:#0d1117;--bg-secondary:#161b22;--bg-tertiary:#21262d;--bg-card:#1c2333;--text-primary:#e6edf3;--text-secondary:#8b949e;--text-muted:#6e7681;--accent:#58a6ff;--accent-hover:#79c0ff;--danger:#f85149;--border:#30363d}
+        [data-theme="light"]{--bg-primary:#f6f8fa;--bg-secondary:#ffffff;--bg-tertiary:#f0f2f5;--bg-card:#ffffff;--text-primary:#1f2328;--text-secondary:#656d76;--text-muted:#8b949e;--accent:#0969da;--accent-hover:#0550ae;--danger:#cf222e;--border:#d0d7de}
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,monospace;background:var(--bg-primary);color:var(--text-primary);display:flex;align-items:center;justify-content:center;min-height:100vh}
+        .login-wrapper{width:100%;max-width:400px;padding:20px}
+        .login-card{position:relative;overflow:hidden;background:linear-gradient(135deg,color-mix(in srgb,var(--accent) 14%,var(--bg-card)),var(--bg-card));border:1px solid color-mix(in srgb,var(--accent) 22%,var(--border));border-radius:18px;padding:32px 28px;box-shadow:0 12px 30px rgba(0,0,0,.18)}
+        .login-card::after{content:'';position:absolute;right:-70px;top:-80px;width:210px;height:210px;border-radius:50%;background:color-mix(in srgb,var(--accent) 10%,transparent);pointer-events:none}
+        .login-logo{text-align:center;margin-bottom:20px;position:relative;z-index:1}
+        .shield-icon{position:relative;display:inline-grid;place-items:center;width:56px;height:56px;border-radius:50%;border:1px solid color-mix(in srgb,var(--accent) 32%,transparent);color:var(--accent);background:radial-gradient(circle at 30% 25%,rgba(255,255,255,.98),transparent 36%),linear-gradient(135deg,color-mix(in srgb,var(--accent) 8%,#fff),color-mix(in srgb,var(--accent) 18%,#fff));box-shadow:0 8px 24px color-mix(in srgb,var(--accent) 14%,transparent),inset 0 0 0 6px color-mix(in srgb,var(--accent) 6%,transparent)}
+        .shield-icon svg{width:28px;height:28px}
+        .shield-dot{position:absolute;right:-1px;top:-2px;width:9px;height:9px;border-radius:50%;border:2px solid var(--bg-card);background:#16b84a;box-shadow:0 0 0 3px rgba(22,199,132,.14)}
+        .login-brand{text-align:center;position:relative;z-index:1;margin-bottom:24px}
+        .login-brand h1{font-size:26px;font-weight:900;letter-spacing:-.03em;line-height:1.1}
+        .brand-accent{color:var(--accent)}
+        .login-brand small{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.3em;color:var(--text-muted);margin-top:6px;font-weight:800}
+        .flash-banner{border:1px solid color-mix(in srgb,var(--danger) 40%,var(--border));background:color-mix(in srgb,var(--danger) 10%,var(--bg-card));color:var(--text-primary);border-radius:12px;padding:10px 12px;font-size:12px;font-weight:700;text-align:center;margin-bottom:16px;position:relative;z-index:1}
+        .flash-banner.info{border-color:color-mix(in srgb,var(--accent) 35%,var(--border));background:color-mix(in srgb,var(--accent) 10%,var(--bg-card))}
+        .form-group{margin-bottom:16px;position:relative;z-index:1}
+        .form-group label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.08em;font-weight:800;color:var(--text-secondary);margin-bottom:6px}
+        .form-group input{width:100%;padding:10px 14px;background:color-mix(in srgb,var(--bg-primary) 80%,transparent);border:1px solid var(--border);border-radius:10px;color:var(--text-primary);font-size:14px;font-family:inherit;transition:border-color .2s}
+        .form-group input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 14%,transparent)}
+        .login-btn{width:100%;padding:12px;background:var(--accent);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:800;cursor:pointer;transition:.15s;position:relative;z-index:1;letter-spacing:.02em}
+        .login-btn:hover{background:var(--accent-hover);box-shadow:0 6px 16px color-mix(in srgb,var(--accent) 28%,transparent)}
+        .theme-toggle{position:absolute;top:16px;right:16px;z-index:2;background:var(--bg-card);border:1px solid var(--border);border-radius:50%;width:36px;height:36px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:16px;box-shadow:0 2px 8px rgba(0,0,0,.2);transition:border-color .2s}
+        .theme-toggle:hover{border-color:var(--accent)}
+        @media(max-width:480px){.login-wrapper{padding:12px}.login-card{padding:24px 20px}}
+    </style>
+</head>
+<body>
+    <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">&#x1F319;</button>
+    <div class="login-wrapper">
+        <div class="login-card">
+            <div class="login-logo">
+                <span class="shield-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3.5L18 5.8V11.2C18 15.1 15.5 18.6 12 19.8C8.5 18.6 6 15.1 6 11.2V5.8L12 3.5Z"/></svg>
+                    <span class="shield-dot"></span>
+                </span>
+            </div>
+            <div class="login-brand">
+                <h1>Aegis<span class="brand-accent">Gate</span></h1>
+                <small>Smart Network Security</small>
+            </div>
+            {% if error %}<div class="flash-banner">{{ error }}</div>{% endif %}
+            {% if info %}<div class="flash-banner info">{{ info }}</div>{% endif %}
+            <form method="POST" action="/login">
+                <div class="form-group">
+                    <label>Username</label>
+                    <input type="text" name="username" autocomplete="username" required autofocus>
+                </div>
+                <div class="form-group">
+                    <label>Password</label>
+                    <input type="password" name="password" autocomplete="current-password" required>
+                </div>
+                <button type="submit" class="login-btn">Sign In</button>
+            </form>
+        </div>
+    </div>
+    <script>
+        function toggleTheme(){var h=document.documentElement;t=h.getAttribute('data-theme')==='light'?'dark':'light';h.setAttribute('data-theme',t);localStorage.setItem('theme',t);document.cookie='theme='+t+';path=/;max-age=31536000;samesite=lax';updateIcon()}
+        function updateIcon(){document.querySelector('.theme-toggle').innerHTML=document.documentElement.getAttribute('data-theme')==='light'?'&#x1F319;':'&#x2600;'}
+        (function(){var s=localStorage.getItem('theme');if(s){document.documentElement.setAttribute('data-theme',s)}updateIcon()})();
+    </script>
+</body>
+</html>

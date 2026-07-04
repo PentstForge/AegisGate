@@ -1,0 +1,906 @@
+{% extends "base.html" %}
+{% block title %}QoS Management — AegisGate{% endblock %}
+{% block page_title %}QoS Management{% endblock %}
+{% block head %}
+<script src="/static/chart.min.js"></script>
+<style>
+.profile-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin:12px 0}
+.profile-card{background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:14px;cursor:pointer;transition:all .2s;position:relative}
+.profile-card:hover{border-color:var(--accent);transform:translateY(-2px);box-shadow:0 4px 12px rgba(0,0,0,.3)}
+.profile-card.active{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,var(--bg-card))}
+.profile-card .p-icon{font-size:28px;margin-bottom:6px}
+.profile-card .p-name{font-size:14px;font-weight:700;color:var(--text-primary)}
+.profile-card .p-desc{font-size:10px;color:var(--text-secondary);margin-top:4px;line-height:1.3}
+.profile-card .p-badge{position:absolute;top:8px;right:8px;font-size:9px;padding:2px 6px;border-radius:8px;background:var(--accent);color:#fff;font-weight:700}
+.qos-panel{display:none}
+.qos-panel.active{display:block}
+.param-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.param-row{display:flex;align-items:center;gap:8px;margin:6px 0}
+.param-row label{min-width:130px;font-size:12px;color:var(--text-secondary)}
+.param-row input,.param-row select{flex:1;min-width:0}
+.stat-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin:10px 0}
+.algo-card{background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:12px}
+.algo-card h3{color:var(--accent);font-size:13px;margin-bottom:6px}
+.algo-card p{font-size:11px;color:var(--text-secondary);line-height:1.4}
+.algo-card.selected{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 5%,var(--bg-card))}
+.rule-row{display:flex;align-items:center;gap:8px;padding:8px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;margin:6px 0}
+.rule-row .rule-icon{width:32px;text-align:center;font-size:18px}
+.rule-row .rule-info{flex:1;min-width:0}
+.rule-row .rule-info .rule-match{font-weight:600;font-size:12px}
+.rule-row .rule-info .rule-detail{font-size:10px;color:var(--text-secondary)}
+.toggle-switch{position:relative;width:40px;height:22px;cursor:pointer}
+.toggle-switch input{display:none}
+.toggle-slider{position:absolute;inset:0;background:var(--bg-tertiary);border-radius:11px;border:1px solid var(--border);transition:.2s}
+.toggle-slider::before{content:'';position:absolute;width:16px;height:16px;left:2px;top:2px;background:var(--text-secondary);border-radius:50%;transition:.2s}
+.toggle-switch input:checked+.toggle-slider{background:var(--accent);border-color:var(--accent)}
+.toggle-switch input:checked+.toggle-slider::before{transform:translateX(18px);background:#fff}
+.speed-btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;background:var(--accent);color:#fff;border-radius:6px;font-weight:600;cursor:pointer;font-size:12px;border:none;white-space:nowrap}
+.speed-btn:hover{background:var(--accent-hover)}
+.speed-btn.running{opacity:.6;pointer-events:none}
+.prio-tag{display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700}
+.prio-highest{background:#8b5cf6;color:#fff}
+.prio-high{background:var(--accent);color:#fff}
+.prio-normal{background:var(--bg-tertiary);color:var(--text-secondary)}
+.prio-low{background:var(--warning);color:#000}
+.prio-lowest{background:var(--danger);color:#fff}
+.iface-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin:10px 0}
+.iface-card{display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:8px;cursor:pointer;transition:all .2s;user-select:none}
+.iface-card:hover{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 5%,var(--bg-tertiary))}
+.iface-card.selected{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,var(--bg-tertiary))}
+.iface-card input[type="checkbox"]{display:none}
+.iface-card .iface-check{width:20px;height:20px;border-radius:4px;border:2px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;transition:all .2s;flex-shrink:0}
+.iface-card.selected .iface-check{background:var(--accent);border-color:var(--accent);color:#fff}
+.iface-card .iface-icon{font-size:18px;flex-shrink:0}
+.iface-card .iface-info{min-width:0}
+.iface-card .iface-name{font-size:13px;font-weight:600;color:var(--text-primary)}
+.iface-card .iface-dev{font-size:10px;color:var(--text-muted);font-family:'Courier New',monospace}
+.profile-layout{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:12px 0}
+@media(max-width:900px){.profile-layout{grid-template-columns:1fr}}
+.profile-left .card,.profile-right .card{margin-bottom:0}
+.card-subtitle{font-size:12px;font-weight:700;color:var(--accent);margin-bottom:10px;text-transform:uppercase;letter-spacing:.5px}
+.prio-grid{display:flex;flex-direction:column;gap:6px}
+.prio-card{display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:8px;transition:border-color .15s}
+.prio-card:hover{border-color:var(--accent)}
+.prio-icon{font-size:20px;flex-shrink:0;width:28px;text-align:center}
+.prio-body{flex:1;min-width:0}
+.prio-label{font-size:12px;font-weight:600;color:var(--text-primary)}
+.prio-custom{font-size:9px;color:var(--accent);margin-left:4px}
+.prio-detail{font-size:10px;color:var(--text-secondary);margin-top:2px}
+.prio-fields{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px}
+.prio-fields input,.prio-fields select{font-size:10px;padding:2px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg-tertiary);color:var(--text-primary)}
+.prio-fields input{width:100px}
+.prio-fields select{width:60px}
+.prio-select{display:flex;align-items:center;gap:4px;flex-shrink:0}
+.prio-select select{width:90px;font-size:11px;padding:4px 6px}
+.prio-del{padding:2px 6px;font-size:10px;background:var(--danger);color:#fff;border:none;border-radius:3px;cursor:pointer}
+.prio-add{margin-top:10px;padding:10px;background:var(--bg-tertiary);border:1px dashed var(--accent);border-radius:8px}
+.prio-add-title{font-size:12px;font-weight:700;color:var(--accent);margin-bottom:6px}
+.prio-add-form{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.prio-add-form input,.prio-add-form select{font-size:11px;padding:4px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg-tertiary);color:var(--text-primary)}
+.prio-add-form input[type="text"]{width:120px}
+.prio-add-form select{width:70px}
+.profile-actions{display:flex;gap:8px;margin:12px 0}
+.btn-danger{background:var(--danger)!important;border-color:var(--danger)!important}
+.btn-danger:hover{background:#e5443b!important}
+.btn-sm{padding:4px 14px;font-size:11px}
+.gauge-wrap{display:flex;gap:12px;justify-content:center;align-items:flex-start;flex-wrap:wrap;padding:4px 0}
+.gauge-container{display:flex;flex-direction:column;align-items:center}
+.gauge-label{font-size:10px;font-weight:700;color:var(--text-secondary);margin-top:2px;text-transform:uppercase;letter-spacing:.5px}
+.gauge-arc{fill:none;stroke-width:12;stroke-linecap:round;transition:stroke-dashoffset .8s ease}
+.gauge-bg{fill:none;stroke:var(--bg-tertiary);stroke-width:12;stroke-linecap:round}
+.gauge-text{font-size:16px;font-weight:800;fill:var(--text-primary);text-anchor:middle;dominant-baseline:central}
+.gauge-unit{font-size:8px;fill:var(--text-secondary);text-anchor:middle}
+.speedtest-details{display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;font-size:10px;margin-top:6px;padding:8px;background:var(--bg-tertiary);border-radius:6px}
+.speedtest-details dt{color:var(--text-secondary);font-weight:600}
+.speedtest-details dd{color:var(--text-primary);font-family:monospace;margin:0}
+.profiles-and-speed{display:flex;gap:16px;align-items:flex-start}
+.profiles-and-speed .profiles-left{flex:1;min-width:0}
+.profiles-and-speed .speedtest-details-col{width:180px;flex-shrink:0;font-size:11px;margin-top:50px;padding-left:10px}
+.profiles-and-speed .speedtest-side{width:240px;flex-shrink:0;display:flex;flex-direction:column;align-items:center}
+.profiles-and-speed .speedtest-side .speed-btn{margin-bottom:8px;width:100%;justify-content:center}
+.tin-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+@media(max-width:900px){.tin-grid{grid-template-columns:1fr}}
+.tin-card{background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:14px;position:relative;overflow:hidden}
+.tin-card .tin-header{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.tin-card .tin-icon{font-size:22px}
+.tin-card .tin-name{font-size:14px;font-weight:700;color:var(--text-primary)}
+.tin-card .tin-dscp{font-size:10px;color:var(--text-secondary);margin-left:auto}
+.tin-card .tin-thresh{font-size:10px;color:var(--text-muted);margin-top:-4px}
+.tin-stat-row{display:flex;justify-content:space-between;font-size:11px;padding:3px 0;border-bottom:1px solid color-mix(in srgb,var(--border) 50%,transparent)}
+.tin-stat-row:last-child{border-bottom:none}
+.tin-stat-row .tin-label{color:var(--text-secondary)}
+.tin-stat-row .tin-val{color:var(--text-primary);font-family:monospace;font-weight:600}
+.tin-bar-wrap{background:var(--bg-tertiary);border-radius:3px;height:8px;margin:4px 0 8px;overflow:hidden}
+.tin-bar-fill{height:100%;border-radius:3px;transition:width .6s ease}
+.tin-total-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:16px}
+.iface-header{font-size:15px;font-weight:700;color:var(--accent);margin:16px 0 8px;display:flex;align-items:center;gap:6px}
+.iface-header .iface-badge{font-size:10px;padding:2px 8px;border-radius:4px;background:var(--bg-tertiary);color:var(--text-secondary);font-weight:400}
+.delay-row{display:flex;gap:6px;margin:6px 0;font-size:10px}
+.delay-row .delay-item{flex:1;text-align:center;padding:4px;border-radius:4px;background:var(--bg-tertiary)}
+.delay-row .delay-item .delay-label{color:var(--text-secondary);font-size:9px}
+.delay-row .delay-item .delay-val{color:var(--text-primary);font-weight:600;font-size:11px;font-family:monospace}
+.qos-page{display:flex;flex-direction:column;gap:14px}
+.profile-grid{gap:12px;margin:0}
+.profile-card{border-radius:15px;padding:15px;box-shadow:0 8px 22px rgba(0,0,0,.08)}
+.profile-card.active{box-shadow:0 0 0 1px color-mix(in srgb,var(--accent) 36%,transparent),0 12px 26px rgba(0,0,0,.12)}
+.algo-card,.tin-card,.rule-row,.prio-card,.iface-card{border-radius:12px}
+.card{border-radius:16px;box-shadow:0 8px 22px rgba(0,0,0,.08)}
+.qos-panel{min-width:0}
+.qos-loading{display:flex;align-items:center;justify-content:center;padding:40px;color:var(--text-secondary);font-size:14px;background:var(--bg-card);border:1px dashed var(--border);border-radius:16px}
+.qos-loading:before{content:'';width:14px;height:14px;margin-right:8px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:qos-spin .8s linear infinite}
+@keyframes qos-spin{to{transform:rotate(360deg)}}
+@media(max-width:1200px){.profiles-and-speed{flex-direction:column}.profiles-and-speed .speedtest-side,.profiles-and-speed .speedtest-details-col{width:100%;margin-top:0;padding-left:0}}
+@media(max-width:820px){.param-grid,.profile-layout{grid-template-columns:1fr}.profile-grid{grid-template-columns:1fr}.rule-row{flex-wrap:wrap}.prio-card{align-items:flex-start}.prio-select{width:100%}.prio-select select{width:100%}}
+</style>
+{% endblock %}
+{% block content %}
+{% set p = qos.profiles.get(qos.active_profile, {}) %}
+<div class="qos-page">
+<section class="page-hero">
+  <div class="page-hero-top">
+    <div>
+      <div class="page-kicker">Traffic shaping control plane</div>
+      <div class="page-title">QoS Management</div>
+      <div class="page-subtitle">Tune CAKE/fq_codel profiles, bandwidth limits, DSCP priorities, manual rules and live traffic tins without touching the underlying routing stack.</div>
+    </div>
+    <div class="page-state-pill {{ 'active' if qos.enabled else 'disabled' }}"><span class="state-dot"></span>{{ 'Active' if qos.enabled else 'Disabled' }}</div>
+  </div>
+  <div class="kpi-grid">
+    <div class="kpi-card {{ 'success' if qos.enabled else '' }}"><div class="kpi-label">Engine</div><div class="kpi-value">{{ 'Online' if qos.enabled else 'Off' }}</div><div class="kpi-note">Runtime state</div></div>
+    <div class="kpi-card accent"><div class="kpi-label">Profile</div><div class="kpi-value">{{ p.name or qos.active_profile }}</div><div class="kpi-note">{{ qos.active_profile }}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Algorithm</div><div class="kpi-value">{{ (p.algorithm or 'n/a')|upper }}</div><div class="kpi-note">Current qdisc mode</div></div>
+    <div class="kpi-card warn"><div class="kpi-label">Bandwidth</div><div class="kpi-value">{{ p.download_mbit }}/{{ p.upload_mbit }}</div><div class="kpi-note">Down/up Mbit</div></div>
+    <div class="kpi-card"><div class="kpi-label">Interfaces</div><div class="kpi-value">{{ 2 + (vpn_ifaces|length) }}</div><div class="kpi-note">WAN/LAN{% if vpn_ifaces %} + VPN{% endif %}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Manual Rules</div><div class="kpi-value">{{ qos.manual_rules|length }}</div><div class="kpi-note">Custom shapers</div></div>
+  </div>
+</section>
+
+{% if request.args.get('message') %}
+<div class="flash-banner {% if request.args.get('error') %}error{% endif %}">{{ request.args.get('message') }}</div>
+{% endif %}
+
+<section class="page-toolbar">
+  <div class="page-tabs">
+    <button type="button" class="page-tab active" onclick="showTab('profiles', this)">Profiles</button>
+    <button type="button" class="page-tab" onclick="showTab('algorithm', this)">Algorithm</button>
+    <button type="button" class="page-tab" onclick="showTab('rules', this)">Manual Rules</button>
+    <button type="button" class="page-tab" onclick="showTab('traffic', this)">Traffic</button>
+    <button type="button" class="page-tab" onclick="showTab('stats', this)">Statistics</button>
+    <button type="button" class="page-tab" onclick="showTab('tune', this)">Tuning</button>
+  </div>
+  <div class="page-actions">
+    <form method="POST" action="/qos/toggle">
+      <input type="hidden" name="enabled" value="{{ '0' if qos.enabled else '1' }}">
+      <button type="submit" class="btn {{ 'btn-danger' if qos.enabled else '' }}">{{ 'Disable QoS' if qos.enabled else 'Enable QoS' }}</button>
+    </form>
+  </div>
+</section>
+
+<div id="panel-profiles" class="qos-panel active">
+
+  <div class="section-heading">Select Profile</div>
+  <div class="profiles-and-speed">
+    <div class="profiles-left">
+      <div class="profile-grid">
+        {% for pid, profile in qos.profiles.items() %}
+        <div class="profile-card {{ 'active' if pid == qos.active_profile else '' }}" onclick="selectProfile('{{ pid }}')">
+          {% if pid == qos.active_profile %}<span class="p-badge">ACTIVE</span>{% endif %}
+          <div class="p-icon">{{ profile.icon }}</div>
+          <div class="p-name">{{ profile.name }}</div>
+          <div class="p-desc">{{ profile.description }}</div>
+          <div style="margin-top:8px;font-size:10px;color:var(--text-muted)">
+            {{ profile.algorithm | upper }} &middot; {{ profile.download_mbit }}/{{ profile.upload_mbit }} Mbit
+            {% if pid == 'custom' and profile.get('custom_classes') %}<br><span style="color:var(--accent)">Custom classes configured</span>{% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    <div id="speedDetailsLeft" class="speedtest-details-col" style="display:none">
+      <div style="font-size:12px;font-weight:700;color:var(--accent);margin-bottom:6px">Test Results</div>
+      <div style="display:grid;grid-template-columns:auto 1fr;gap:4px 8px;font-size:11px">
+        <span style="color:var(--text-secondary);font-weight:600">Server</span><span id="stLServer" style="font-family:monospace;color:var(--text-primary)">-</span>
+        <span style="color:var(--text-secondary);font-weight:600">Sponsor</span><span id="stLSponsor" style="font-family:monospace;color:var(--text-primary)">-</span>
+        <span style="color:var(--text-secondary);font-weight:600">Client IP</span><span id="stLClientIp" style="font-family:monospace;color:var(--text-primary)">-</span>
+        <span style="color:var(--text-secondary);font-weight:600">ISP</span><span id="stLIsp" style="font-family:monospace;color:var(--text-primary)">-</span>
+        <span style="color:var(--text-secondary);font-weight:600">Latency</span><span id="stLLatency" style="font-family:monospace;color:var(--text-primary)">-</span>
+        <span style="color:var(--text-secondary);font-weight:600">Data RX</span><span id="stLBytesRx" style="font-family:monospace;color:var(--text-primary)">-</span>
+        <span style="color:var(--text-secondary);font-weight:600">Data TX</span><span id="stLBytesTx" style="font-family:monospace;color:var(--text-primary)">-</span>
+      </div>
+    </div>
+    <div class="speedtest-side">
+      <button class="speed-btn" id="speedBtn" onclick="runSpeedtest()">&#9889; Run Speed Test</button>
+      <div id="gaugeArea" style="display:none;width:100%">
+        <div class="gauge-wrap">
+          <div class="gauge-container">
+            <svg width="100" height="58" viewBox="0 0 120 70">
+              <path class="gauge-bg" d="M 10 65 A 50 50 0 0 1 110 65"/>
+              <path class="gauge-arc" id="gaugeDl" d="M 10 65 A 50 50 0 0 1 110 65" stroke="var(--success)" stroke-dasharray="157" stroke-dashoffset="157"/>
+              <text class="gauge-text" x="60" y="48" id="gaugeDlVal">--</text>
+              <text class="gauge-unit" x="60" y="62">Mbit/s</text>
+            </svg>
+            <div class="gauge-label">&#x2B07; Download</div>
+          </div>
+          <div class="gauge-container">
+            <svg width="100" height="58" viewBox="0 0 120 70">
+              <path class="gauge-bg" d="M 10 65 A 50 50 0 0 1 110 65"/>
+              <path class="gauge-arc" id="gaugeUl" d="M 10 65 A 50 50 0 0 1 110 65" stroke="var(--accent)" stroke-dasharray="157" stroke-dashoffset="157"/>
+              <text class="gauge-text" x="60" y="48" id="gaugeUlVal">--</text>
+              <text class="gauge-unit" x="60" y="62">Mbit/s</text>
+            </svg>
+            <div class="gauge-label">&#x2B06; Upload</div>
+          </div>
+        </div>
+        <div style="display:flex;justify-content:center;margin:4px 0">
+          <div class="gauge-container">
+            <svg width="80" height="48" viewBox="0 0 90 55">
+              <path class="gauge-bg" d="M 8 50 A 38 38 0 0 1 82 50"/>
+              <path class="gauge-arc" id="gaugePing" d="M 8 50 A 38 38 0 0 1 82 50" stroke="var(--warning)" stroke-dasharray="119" stroke-dashoffset="119"/>
+              <text class="gauge-text" x="45" y="36" id="gaugePingVal" style="font-size:14px">--</text>
+              <text class="gauge-unit" x="45" y="48">ms</text>
+            </svg>
+            <div class="gauge-label">&#x23F1; Ping</div>
+          </div>
+        </div>
+      </div>
+      <div id="speedStatus" style="font-size:11px;color:var(--text-secondary);text-align:center;margin-top:4px"></div>
+    </div>
+  </div>
+
+      <div class="section-heading">Active Profile Settings</div>
+      {% set p = qos.profiles.get(qos.active_profile, {}) %}
+      <form method="POST" action="/qos/update-profile">
+        <input type="hidden" name="profile_id" value="{{ qos.active_profile }}">
+        <div class="profile-layout">
+          <div class="profile-left">
+            <div class="card">
+              <div class="card-subtitle">Interfaces</div>
+              <div class="iface-grid">
+                <label class="iface-card {{ 'selected' if p.get('qos_wan', True) else '' }}">
+                  <input type="checkbox" name="qos_wan" value="1" {{ 'checked' if p.get('qos_wan', True) else '' }}>
+                  <span class="iface-check">{% if p.get('qos_wan', True) %}&#10003;{% endif %}</span>
+                  <span class="iface-icon">&#127760;</span>
+                  <span class="iface-info"><span class="iface-name">WAN</span><span class="iface-dev">{{ qos.wan_iface }}</span></span>
+                </label>
+                <label class="iface-card {{ 'selected' if p.get('qos_lan', True) else '' }}">
+                  <input type="checkbox" name="qos_lan" value="1" {{ 'checked' if p.get('qos_lan', True) else '' }}>
+                  <span class="iface-check">{% if p.get('qos_lan', True) %}&#10003;{% endif %}</span>
+                  <span class="iface-icon">&#128421;</span>
+                  <span class="iface-info"><span class="iface-name">LAN</span><span class="iface-dev">{{ qos.lan_iface }}</span></span>
+                </label>
+                {% for v in qos.vpn_ifaces %}
+                <label class="iface-card {{ 'selected' if v in p.get('qos_vpns', qos.vpn_ifaces) else '' }}">
+                  <input type="checkbox" name="qos_vpn_{{ v }}" value="1" {{ 'checked' if v in p.get('qos_vpns', qos.vpn_ifaces) else '' }}>
+                  <span class="iface-check">{% if v in p.get('qos_vpns', qos.vpn_ifaces) %}&#10003;{% endif %}</span>
+                  <span class="iface-icon">&#128274;</span>
+                  <span class="iface-info"><span class="iface-name">VPN</span><span class="iface-dev">{{ v }}</span></span>
+                </label>
+                {% endfor %}
+              </div>
+              <div class="param-grid">
+                <div class="param-row">
+                  <label>Download (Mbit)</label>
+                  <input type="number" name="download_mbit" value="{{ p.download_mbit }}" min="1" max="10000" step="1">
+                </div>
+                <div class="param-row">
+                  <label>Upload (Mbit)</label>
+                  <input type="number" name="upload_mbit" value="{{ p.upload_mbit }}" min="1" max="10000" step="1">
+                </div>
+                <div class="param-row">
+                  <label>Algorithm</label>
+                  <select name="algorithm">
+                    {% for aid, ainfo in qos.algorithms.items() %}
+                    <option value="{{ aid }}" {{ 'selected' if aid == p.algorithm else '' }}>{{ ainfo.name }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div class="param-row">
+                  <label>Overhead (bytes)</label>
+                  <input type="number" name="cake_overhead" value="{{ p.cake_overhead }}" min="0" max="100" step="1">
+                </div>
+                {% if p.algorithm == 'cake' %}
+                <div class="param-row">
+                  <label>DiffServ Mode</label>
+                  <select name="cake_diffserv">
+                    {% for did, dinfo in qos.cake_diffserv_options.items() %}
+                    <option value="{{ did }}" {{ 'selected' if did == p.cake_diffserv else '' }}>{{ dinfo.label }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div class="param-row">
+                  <label>Flow Isolation</label>
+                  <select name="cake_flowmode">
+                    {% for fid, finfo in qos.cake_flowmode_options.items() %}
+                    <option value="{{ fid }}" {{ 'selected' if fid == p.cake_flowmode else '' }}>{{ finfo.label }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div class="param-row">
+                  <label>Nat</label>
+                  <select name="cake_nat">
+                    <option value="1" {{ 'selected' if p.cake_nat else '' }}>Enabled</option>
+                    <option value="0" {{ 'selected' if not p.cake_nat else '' }}>Disabled</option>
+                  </select>
+                </div>
+                <div class="param-row">
+                  <label>RTT Estimate</label>
+                  <input type="text" name="cake_rtt" value="{{ p.get('cake_rtt', '100ms') }}">
+                </div>
+                {% elif p.algorithm == 'fq_codel' %}
+                <div class="param-row">
+                  <label>Target Delay</label>
+                  <input type="text" name="fq_codel_target" value="{{ p.fq_codel_target }}">
+                </div>
+                <div class="param-row">
+                  <label>Interval</label>
+                  <input type="text" name="fq_codel_interval" value="{{ p.fq_codel_interval }}">
+                </div>
+                <div class="param-row">
+                  <label>Limit (packets)</label>
+                  <input type="number" name="fq_codel_limit" value="{{ p.fq_codel_limit }}" min="1" max="100000">
+                </div>
+                <div class="param-row">
+                  <label>Flows</label>
+                  <input type="number" name="fq_codel_flows" value="{{ p.get('fq_codel_flows', 1024) }}" min="1" max="65536">
+                </div>
+                {% endif %}
+              </div>
+              <div class="profile-actions">
+                <button type="submit" class="btn">Save &amp; Apply</button>
+                <form method="post" action="/qos/reset-profile/{{ qos.active_profile }}" style="display:inline" onsubmit="return confirm('Reset to defaults?')"><button type="submit" class="btn btn-danger">Reset Defaults</button></form>
+              </div>
+            </div>
+          </div>
+          <div class="profile-right">
+            <div class="card">
+              <div class="card-subtitle">Traffic Priorities</div>
+              <div class="prio-grid">
+                {% for prio_key, prio_info in qos.priority_classes.items() %}
+                <div class="prio-card">
+                  <div class="prio-icon">{{ prio_info.icon }}</div>
+                  <div class="prio-body">
+                    <div class="prio-label">{{ prio_info.label }}{% if prio_info.get('custom') %} <span class="prio-custom">custom</span>{% endif %}</div>
+                    {% if qos.active_profile == 'custom' or prio_info.get('custom') %}
+                    <div class="prio-fields">
+                      <input type="text" name="ports_{{ prio_key }}" value="{{ p.get('custom_classes', {}).get(prio_key, {}).get('ports', prio_info.ports) if p.get('custom_classes', {}).get(prio_key, {}).get('ports', prio_info.ports) else prio_info.ports }}" placeholder="Ports">
+                      <input type="text" name="nets_{{ prio_key }}" value="{{ p.get('custom_classes', {}).get(prio_key, {}).get('networks', prio_info.networks) if p.get('custom_classes', {}).get(prio_key, {}).get('networks', prio_info.networks) else prio_info.networks }}" placeholder="Networks">
+                      <select name="proto_{{ prio_key }}">
+                        <option value="" {{ 'selected' if not (p.get('custom_classes', {}).get(prio_key, {}).get('protocols', prio_info.protocols)) else '' }}>Any</option>
+                        <option value="tcp" {{ 'selected' if (p.get('custom_classes', {}).get(prio_key, {}).get('protocols', prio_info.protocols)) == 'tcp' else '' }}>TCP</option>
+                        <option value="udp" {{ 'selected' if (p.get('custom_classes', {}).get(prio_key, {}).get('protocols', prio_info.protocols)) == 'udp' else '' }}>UDP</option>
+                      </select>
+                    </div>
+                    {% else %}
+                    <div class="prio-detail">Ports: {{ prio_info.ports }}{% if prio_info.networks %} &middot; Nets: {{ prio_info.networks }}{% endif %}{% if prio_info.protocols %} &middot; {{ prio_info.protocols|upper }}{% endif %}</div>
+                    {% endif %}
+                  </div>
+                  <div class="prio-select">
+                    <select name="prio_{{ prio_key }}">
+                      {% for lvl, linfo in qos.priority_levels.items() %}
+                      <option value="{{ lvl }}" {{ 'selected' if p.get('priorities', {}).get(prio_key, 'normal') == lvl else '' }}>{{ linfo.label }}</option>
+                      {% endfor %}
+                    </select>
+                    {% if prio_info.get('custom') %}
+                    <button type="submit" formaction="/qos/remove-class" formmethod="POST" name="class_key" value="{{ prio_key }}" class="prio-del" onclick="return confirm('Delete this class?')">&#x2716;</button>
+                    {% endif %}
+                  </div>
+                </div>
+                {% endfor %}
+              </div>
+              {% if qos.active_profile == 'custom' %}
+              <div class="prio-add">
+                <div class="prio-add-title">+ Add Priority Class</div>
+                <div class="prio-add-form">
+                  <input type="text" name="class_key" placeholder="Key" formaction="/qos/add-class" required>
+                  <input type="text" name="label" placeholder="Label" required>
+                  <input type="text" name="ports" placeholder="Ports">
+                  <input type="text" name="networks" placeholder="Networks">
+                  <select name="protocols">
+                    <option value="">Any</option>
+                    <option value="tcp">TCP</option>
+                    <option value="udp">UDP</option>
+                  </select>
+                  <button type="submit" formaction="/qos/add-class" formmethod="POST" class="btn btn-sm">Add</button>
+                </div>
+              </div>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      </form>
+
+</div>
+
+<div id="panel-algorithm" class="qos-panel">
+  <div class="section-heading">Available Algorithms</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+    {% for aid, ainfo in qos.algorithms.items() %}
+    <div class="algo-card {{ 'selected' if aid == qos.profiles.get(qos.active_profile, {}).get('algorithm') else '' }}">
+      <h3>{{ ainfo.name }}</h3>
+      <p>{{ ainfo.description }}</p>
+      <div style="margin-top:8px;font-size:10px;color:var(--text-muted)">Params: {{ ainfo.params | join(', ') }}</div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="section-heading">CAKE DiffServ Modes</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+    {% for did, dinfo in qos.cake_diffserv_options.items() %}
+    <div class="algo-card" style="padding:10px">
+      <h3 style="font-size:12px">{{ dinfo.label }}</h3>
+      <p style="font-size:10px">{{ dinfo.desc }}</p>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="section-heading">CAKE Flow Isolation Modes</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+    {% for fid, finfo in qos.cake_flowmode_options.items() %}
+    <div class="algo-card" style="padding:10px">
+      <h3 style="font-size:12px">{{ finfo.label }}</h3>
+      <p style="font-size:10px">{{ finfo.desc }}</p>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<div id="panel-rules" class="qos-panel">
+  <div class="section-heading">Manual Bandwidth Rules</div>
+  <div class="card">
+    <form method="POST" action="/qos/add-rule">
+      <div style="display:grid;grid-template-columns:auto 1fr auto auto 1fr;gap:8px;align-items:center">
+        <select name="type" style="width:100px">
+          <option value="port">Port</option>
+          <option value="ip">IP / CIDR</option>
+          <option value="protocol">Protocol</option>
+        </select>
+        <input type="text" name="match" placeholder="e.g. 443, 10.0.0.0/24, udp" required>
+        <input type="number" name="bandwidth_kbit" placeholder="kbit/s" min="1" style="width:90px" required>
+        <select name="priority" style="width:90px">
+          {% for lvl, linfo in qos.priority_levels.items() %}
+          <option value="{{ linfo.value }}" {{ 'selected' if lvl == 'normal' else '' }}>{{ linfo.label }}</option>
+          {% endfor %}
+        </select>
+        <div style="display:flex;gap:4px">
+          <input type="text" name="comment" placeholder="Comment" style="flex:1">
+          <button type="submit" class="btn" style="padding:6px 12px;font-size:12px">Add</button>
+        </div>
+      </div>
+    </form>
+  </div>
+
+  {% if qos.manual_rules %}
+  <div style="margin-top:10px">
+    {% for rule in qos.manual_rules %}
+    <div class="rule-row">
+      <div class="rule-icon">
+        {% if rule.type == 'port' %}&#x1f4e6;
+        {% elif rule.type == 'ip' %}&#x1f310;
+        {% elif rule.type == 'protocol' %}&#x1f4e1;
+        {% endif %}
+      </div>
+      <div class="rule-info">
+        <div class="rule-match">{{ rule.match }}</div>
+        <div class="rule-detail">{{ rule.bandwidth_kbit }} kbit/s &middot; Prio {{ rule.priority }}{% if rule.comment %} &middot; {{ rule.comment }}{% endif %}</div>
+      </div>
+      <span class="badge {{ 'badge-success' if rule.enabled else 'badge-danger' }}" style="font-size:10px">{{ 'ON' if rule.enabled else 'OFF' }}</span>
+      <form method="POST" action="/qos/toggle-rule" style="margin:0">
+        <input type="hidden" name="rule_id" value="{{ rule.id }}">
+        <input type="hidden" name="enabled" value="{{ '0' if rule.enabled else '1' }}">
+        <button type="submit" style="padding:4px 8px;font-size:10px;background:var(--bg-tertiary);color:var(--text-primary);border:1px solid var(--border);border-radius:4px;cursor:pointer">{{ 'Disable' if rule.enabled else 'Enable' }}</button>
+      </form>
+      <form method="POST" action="/qos/remove-rule" style="margin:0">
+        <input type="hidden" name="rule_id" value="{{ rule.id }}">
+        <button type="submit" style="padding:4px 8px;font-size:10px;background:var(--danger);color:#fff;border:none;border-radius:4px;cursor:pointer" onclick="return confirm('Delete this rule?')">&#x2716;</button>
+      </form>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div style="color:var(--text-muted);font-size:12px;margin:10px 0">No manual rules configured. Add one above.</div>
+  {% endif %}
+</div>
+
+<div id="panel-traffic" class="qos-panel">
+  <div id="traffic-loading" class="qos-loading">Loading traffic data...</div>
+  <div id="traffic-content" style="display:none">
+
+    <div class="section-heading">&#x1F3AF; Priority → CAKE Tin Mapping</div>
+    <div id="prio-mapping"></div>
+
+    <div id="manual-rules-section" style="display:none">
+      <div class="section-heading">&#x1F4DD; Manual Rules</div>
+      <div id="manual-rules-list"></div>
+    </div>
+
+    <div id="traffic-ifaces"></div>
+  </div>
+</div>
+
+<div id="panel-stats" class="qos-panel">
+  <div class="section-heading">QoS Statistics</div>
+  {% for iface in qos.interfaces %}
+  {% if iface.operstate == 'UP' and iface.name != 'lo' %}
+  <div class="card">
+    <h2>{{ iface.name }} <span style="font-size:11px;color:var(--text-secondary)">{{ iface.qdisc[:80] if iface.qdisc else 'default' }}</span></h2>
+    <div class="stat-row">
+      <div class="stat-card">
+        <span class="stat-value">{{ (iface.rx_bytes / 1073741824) | round(2) if iface.rx_bytes > 1073741824 else (iface.rx_bytes / 1048576) | round(1) if iface.rx_bytes > 1048576 else (iface.rx_bytes / 1024) | round(0) }}</span>
+        <span class="stat-label">RX {{ 'GB' if iface.rx_bytes > 1073741824 else 'MB' if iface.rx_bytes > 1048576 else 'KB' }}</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-value">{{ (iface.tx_bytes / 1073741824) | round(2) if iface.tx_bytes > 1073741824 else (iface.tx_bytes / 1048576) | round(1) if iface.tx_bytes > 1048576 else (iface.tx_bytes / 1024) | round(0) }}</span>
+        <span class="stat-label">TX {{ 'GB' if iface.tx_bytes > 1073741824 else 'MB' if iface.tx_bytes > 1048576 else 'KB' }}</span>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+  {% endfor %}
+
+  <div class="section-heading">Conntrack</div>
+  <div class="stat-row">
+    <div class="stat-card">
+      <span class="stat-value info">{{ conntrack.count }}</span>
+      <span class="stat-label">Active Connections</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-value">{{ conntrack.max }}</span>
+      <span class="stat-label">Max Connections</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-value {{ 'bl' if conntrack.percentage > 80 else 'ok' }}">{{ conntrack.percentage }}%</span>
+      <span class="stat-label">Usage</span>
+    </div>
+  </div>
+</div>
+
+<div id="panel-tune" class="qos-panel">
+  <div class="section-heading">Flowtable Offload</div>
+  <div class="card">
+    <div style="display:flex;align-items:center;gap:12px">
+      <span class="badge badge-success">ENABLED</span>
+      <span style="font-size:12px;color:var(--text-secondary)">nft flowtable on {{ wan_iface }}, {{ lan_iface }}{% if vpn_ifaces %}, {{ vpn_ifaces | join(', ') }}{% endif %} — established connections bypass all rules</span>
+    </div>
+    <div style="margin-top:8px;font-size:11px;color:var(--text-muted);font-family:monospace">
+      ct state established,related flow add @f
+    </div>
+  </div>
+
+  <div class="section-heading">Interface Offloads</div>
+  <div class="card">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px">
+      {% for iface in qos.interfaces %}
+      {% if iface.operstate == 'UP' and iface.name != 'lo' %}
+      <div><strong>{{ iface.name }}:</strong> {{ iface.link_type }} &middot; MTU {{ iface.mtu }}{% if iface.speed_mbps %} &middot; {{ iface.speed_mbps }} Mbps{% endif %}</div>
+      {% endif %}
+      {% endfor %}
+      <div><strong>RPS:</strong> All available cores</div>
+      <div><strong>Flowtable:</strong> ingress priority 0</div>
+    </div>
+  </div>
+
+  <div class="section-heading">Speed Test Results</div>
+  <div class="card" id="speedResults">
+    <p style="font-size:12px;color:var(--text-secondary)">Click "Run Speed Test" on the Profiles tab to measure your WAN speed, then adjust bandwidth limits accordingly.</p>
+  </div>
+</div>
+
+</div>
+
+<script>
+document.querySelectorAll('.iface-card').forEach(function(card){
+  var cb=card.querySelector('input[type="checkbox"]');
+  cb.addEventListener('change', function(){
+    card.classList.toggle('selected',cb.checked);
+    card.querySelector('.iface-check').textContent=cb.checked?'\u2713':'';
+    var fd=new FormData(card.closest('form'));
+    fd.set('profile_id','{{ qos.active_profile }}');
+    fetch('/qos/update-profile',{method:'POST',body:fd}).then(function(){location.reload()});
+  });
+});
+function showTab(name, btn){
+  document.querySelectorAll('.page-tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.qos-panel').forEach(p=>p.classList.remove('active'));
+  if(btn) btn.classList.add('active');
+  document.getElementById('panel-'+name).classList.add('active');
+  if(name==='traffic') loadTrafficData();
+}
+function selectProfile(pid){
+  if(confirm('Apply profile: '+pid+'?')){
+    var f=document.createElement('form');
+    f.method='POST';f.action='/qos/apply-profile';
+    var i=document.createElement('input');i.type='hidden';i.name='profile_id';i.value=pid;
+    f.appendChild(i);document.body.appendChild(f);f.submit();
+  }
+}
+function setGauge(id,maxLen,val,maxVal){
+  var el=document.getElementById(id);
+  if(!el)return;
+  var ratio=Math.min(val/Math.max(maxVal,1),1);
+  var offset=maxLen*(1-ratio);
+  el.style.strokeDashoffset=offset;
+}
+function formatBytes(b){
+  if(b>=1073741824)return (b/1073741824).toFixed(2)+' GB';
+  if(b>=1048576)return (b/1048576).toFixed(1)+' MB';
+  return (b/1024).toFixed(0)+' KB';
+}
+function runSpeedtest(){
+  var btn=document.getElementById('speedBtn');
+  var status=document.getElementById('speedStatus');
+  btn.classList.add('running');btn.innerHTML='&#9889; Testing...';
+  status.textContent='Running, please wait ~30s...';
+  document.getElementById('gaugeArea').style.display='block';
+  fetch('/api/qos/speedtest').then(r=>r.json()).then(d=>{
+    btn.classList.remove('running');btn.innerHTML='&#9889; Run Speed Test';
+    if(d.ok){
+      status.innerHTML='<span style="color:var(--success)">&#10003; Done</span>';
+      var dl=d.download_mbit||0,ul=d.upload_mbit||0,ping=d.ping_ms||0;
+      var maxMbit=Math.max(dl,ul,100);
+      setGauge('gaugeDl',157,dl,maxMbit);
+      setGauge('gaugeUl',157,ul,maxMbit);
+      setGauge('gaugePing',119,Math.min(ping,200),200);
+      document.getElementById('gaugeDlVal').textContent=dl.toFixed(1);
+      document.getElementById('gaugeUlVal').textContent=ul.toFixed(1);
+      document.getElementById('gaugePingVal').textContent=ping.toFixed(0);
+      document.getElementById('gaugeArea').style.display='block';
+      document.getElementById('speedDetailsLeft').style.display='block';
+      document.getElementById('stLServer').textContent=(d.server_name||'-')+(d.server_country?' ('+d.server_country+')':'');
+      document.getElementById('stLSponsor').textContent=d.server_sponsor||'-';
+      document.getElementById('stLClientIp').textContent=d.client_ip||'-';
+      document.getElementById('stLIsp').textContent=d.client_isp||'-';
+      document.getElementById('stLLatency').textContent=d.server_latency?d.server_latency+' ms':'-';
+      document.getElementById('stLBytesRx').textContent=d.bytes_received?formatBytes(d.bytes_received):'-';
+      document.getElementById('stLBytesTx').textContent=d.bytes_sent?formatBytes(d.bytes_sent):'-';
+      document.getElementById('gaugeArea').style.display='block';
+      var dlInput=document.querySelector('input[name="download_mbit"]');
+      var ulInput=document.querySelector('input[name="upload_mbit"]');
+      if(dlInput)dlInput.value=Math.round(dl);
+      if(ulInput)ulInput.value=Math.round(ul);
+      var sr=document.getElementById('speedResults');
+      if(sr)sr.innerHTML='<div class="stat-row"><div class="stat-card"><span class="stat-value ok">'+dl.toFixed(1)+'</span><span class="stat-label">Download Mbit</span></div><div class="stat-card"><span class="stat-value info">'+ul.toFixed(1)+'</span><span class="stat-label">Upload Mbit</span></div><div class="stat-card"><span class="stat-value">'+ping.toFixed(0)+'ms</span><span class="stat-label">Ping</span></div><div class="stat-card"><span class="stat-value" style="font-size:12px">'+((d.server_name||'')+(d.server_sponsor?' / '+d.server_sponsor:''))+'</span><span class="stat-label">Server</span></div></div>';
+    } else {
+      status.innerHTML='<span style="color:var(--warning)">&#9888; Partial</span>';
+      var dl=d.download_mbit||0;
+      setGauge('gaugeDl',157,dl,Math.max(dl,100));
+      document.getElementById('gaugeDlVal').textContent=dl.toFixed(1);
+      document.getElementById('gaugeDlVal').textContent=dl.toFixed(1);
+      document.getElementById('gaugeUlVal').textContent='--';
+      document.getElementById('gaugePingVal').textContent='--';
+      document.getElementById('gaugeArea').style.display='block';
+      document.getElementById('speedDetailsLeft').style.display='block';
+      document.getElementById('stLServer').textContent='-';
+      document.getElementById('stLSponsor').textContent='-';
+      document.getElementById('stLClientIp').textContent='-';
+      document.getElementById('stLIsp').textContent='-';
+      document.getElementById('stLLatency').textContent='-';
+      document.getElementById('stLBytesRx').textContent='-';
+      document.getElementById('stLBytesTx').textContent='-';
+      document.getElementById('gaugeArea').style.display='block';
+      var dlInput=document.querySelector('input[name="download_mbit"]');
+      if(dlInput&&dl>0)dlInput.value=Math.round(dl);
+    }
+  }).catch(()=>{btn.classList.remove('running');btn.innerHTML='&#9889; Run Speed Test';status.textContent='Error';});
+}
+
+var wanIface='{{ wan_iface }}';
+var lanIface='{{ lan_iface }}';
+var cakeCharts={};
+var tinColors={'Bulk':'#8b949e','Best Effort':'#58a6ff','Video':'#d29922','Voice':'#3fb950'};
+var prioColors={'highest':'#8b5cf6','high':'#58a6ff','normal':'#3fb950','low':'#d29922','lowest':'#f85149'};
+
+function fmtBytes(b){
+  if(b>=1073741824) return (b/1073741824).toFixed(2)+' GB';
+  if(b>=1048576) return (b/1048576).toFixed(1)+' MB';
+  if(b>=1024) return (b/1024).toFixed(0)+' KB';
+  return b+' B';
+}
+function fmtNum(n){return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g,',');}
+
+function loadTrafficData(){
+  fetch('/api/qos/traffic').then(function(r){return r.json();}).then(function(data){
+    document.getElementById('traffic-loading').style.display='none';
+    document.getElementById('traffic-content').style.display='block';
+    window.manualRulesStats=data.manual_rules_stats||[];
+    renderPrioMapping(data.priorities||[], data.ifaces&&data.ifaces.wan||{});
+    renderManualRules(data.manual_rules||[]);
+    renderAllIfaces(data);
+  }).catch(function(err){console.error('traffic error:',err);});
+}
+
+function renderPrioMapping(prios, wanData){
+  var tinOrder=['Voice','Best Effort','Video','Bulk'];
+  var groups={};
+  tinOrder.forEach(function(t){groups[t]=[];});
+  prios.forEach(function(p){
+    var tin=p.cake_tin||'Best Effort';
+    if(!groups[tin]) groups[tin]=[];
+    groups[tin].push(p);
+  });
+  var tinMap={};
+  (wanData.tins||[]).forEach(function(t){tinMap[t.name]=t;});
+  var html='';
+  tinOrder.forEach(function(tin){
+    var items=groups[tin]||[];
+    if(!items.length) return;
+    var c=tinColors[tin]||'#8b949e';
+    var td=tinMap[tin]||{};
+    var totalPkts=td.pkts||0;
+    var totalBytes=td.bytes||0;
+    var totalDrops=td.drops||0;
+    var totalFlows=(td.sp_flows||0)+(td.bk_flows||0);
+    html+='<div style="margin-bottom:12px">';
+    html+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">';
+    html+='<span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:'+c+'"></span>';
+    html+='<strong style="font-size:13px;color:'+c+'">'+tin+' Tin</strong>';
+    html+='<span style="font-size:10px;color:var(--text-secondary);margin-left:auto">'+items.length+' class'+(items.length>1?'es':'')+'</span>';
+    html+='</div>';
+    if(totalPkts>0){
+      html+='<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-bottom:8px;padding:6px 10px;background:var(--bg-tertiary);border-radius:6px;font-size:10px">';
+      html+='<div><span style="color:var(--text-secondary)">Pkts</span><br><strong style="color:var(--text-primary);font-family:monospace">'+fmtNum(totalPkts)+'</strong></div>';
+      html+='<div><span style="color:var(--text-secondary)">Bytes</span><br><strong style="color:var(--text-primary);font-family:monospace">'+fmtBytes(totalBytes)+'</strong></div>';
+      html+='<div><span style="color:var(--text-secondary)">Drops</span><br><strong style="'+(totalDrops?'color:var(--danger)':'color:var(--text-primary)')+';font-family:monospace">'+fmtNum(totalDrops)+'</strong></div>';
+      html+='<div><span style="color:var(--text-secondary)">Flows</span><br><strong style="color:var(--text-primary);font-family:monospace">'+totalFlows+'</strong></div>';
+      html+='</div>';
+    }
+    html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">';
+    items.forEach(function(p){
+      var pc=prioColors[p.priority]||'#8b949e';
+      html+='<div class="rule-row" style="padding:6px 10px">';
+      html+='<div class="rule-icon">'+p.icon+'</div>';
+      html+='<div class="rule-info">';
+      html+='<div class="rule-match">'+p.label+'</div>';
+      html+='<div class="rule-detail" style="font-size:9px">';
+      if(p.ports) html+='Ports: '+p.ports+' ';
+      if(p.networks) html+='Nets: '+p.networks+' ';
+      if(p.protocols) html+=p.protocols.toUpperCase();
+      html+='</div></div>';
+      html+='<span class="prio-tag prio-'+p.priority+'" style="background:'+pc+'22;color:'+pc+';border:1px solid '+pc+'55">'+p.priority_label+'</span>';
+      html+='</div>';
+    });
+    html+='</div></div>';
+  });
+  document.getElementById('prio-mapping').innerHTML=html;
+}
+
+function renderManualRules(rules){
+  if(!rules.length){document.getElementById('manual-rules-section').style.display='none';return;}
+  document.getElementById('manual-rules-section').style.display='block';
+  var stats=typeof manualRulesStats!=='undefined'?manualRulesStats:[];
+  var html='';
+  rules.forEach(function(r){
+    var pc=prioColors[r.priority]||'#8b949e';
+    html+='<div class="rule-row" style="margin:4px 0">';
+    html+='<div class="rule-icon">';
+    if(r.type=='port') html+='\u{1F4E6}';
+    else if(r.type=='ip') html+='\u{1F310}';
+    else html+='\u{1F4E1}';
+    html+='</div>';
+    html+='<div class="rule-info">';
+    html+='<div class="rule-match">'+r.match+'</div>';
+    html+='<div class="rule-detail">'+r.bandwidth_kbit+' kbit/s';
+    if(r.comment) html+=' &middot; '+r.comment;
+    html+='</div>';
+    var rStats=stats.filter(function(s){return s.match&&s.match.indexOf(r.match)>=0;});
+    if(rStats.length>0){
+      var totalPkts=rStats.reduce(function(a,b){return a+(b.pkts||0);},0);
+      var totalBytes=rStats.reduce(function(a,b){return a+(b.bytes||0);},0);
+      var totalDrops=rStats.reduce(function(a,b){return a+(b.drops||0);},0);
+      if(totalPkts>0||totalBytes>0){
+        html+='<div style="font-size:9px;color:var(--text-secondary);margin-top:2px">';
+        html+=fmtNum(totalPkts)+' pkts &middot; '+fmtBytes(totalBytes);
+        if(totalDrops>0) html+=' &middot; <span style="color:var(--danger)">'+fmtNum(totalDrops)+' drops</span>';
+        html+='</div>';
+      }
+    }
+    html+='</div>';
+    html+='<span class="prio-tag" style="background:'+pc+'22;color:'+pc+';border:1px solid '+pc+'55">Prio '+r.priority+'</span>';
+    html+='<span class="badge '+(r.enabled?'badge-success':'badge-danger')+'" style="font-size:9px;margin-left:4px">'+(r.enabled?'ON':'OFF')+'</span>';
+    html+='</div>';
+  });
+  document.getElementById('manual-rules-list').innerHTML=html;
+}
+
+function renderAllIfaces(data){
+  var container=document.getElementById('traffic-ifaces');
+  if(!container) return;
+  var ifaces=data.ifaces||{};
+  var keys=Object.keys(ifaces);
+  var html='';
+  keys.forEach(function(key){
+    var idata=ifaces[key];
+    var ifaceName=idata.iface||key;
+    var label=idata.label||key.toUpperCase();
+    var prefix=key.replace(/[^a-z0-9]/g,'');
+    html+='<div class="iface-header" id="traffic-'+prefix+'-header"></div>';
+    html+='<div class="tin-total-grid" id="traffic-'+prefix+'-total"></div>';
+    html+='<div class="tin-grid" id="traffic-'+prefix+'-tins"></div>';
+    html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">';
+    html+='<div class="tin-card" style="padding:12px"><div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:4px">'+label+' — Packets per Tin</div><canvas id="'+prefix+'PktChart" style="max-height:220px"></canvas></div>';
+    html+='<div class="tin-card" style="padding:12px"><div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:4px">'+label+' — Bytes per Tin</div><canvas id="'+prefix+'ByteChart" style="max-height:220px"></canvas></div>';
+    html+='</div>';
+  });
+  container.innerHTML=html;
+  keys.forEach(function(key){
+    var idata=ifaces[key];
+    var prefix=key.replace(/[^a-z0-9]/g,'');
+    var label=idata.label||key.toUpperCase();
+    renderIface(idata,prefix,label);
+    renderTinCharts(idata,prefix);
+  });
+}
+
+function renderIface(data,prefix,ifaceName){
+  var t=data.total||{};
+  var hdr=document.getElementById('traffic-'+prefix+'-header');
+  hdr.innerHTML='&#x1F4C8; '+(ifaceName||data.iface||prefix).toUpperCase()+' <span class="iface-badge">'+(data.type||'N/A').toUpperCase()+'</span>';
+  var tg=document.getElementById('traffic-'+prefix+'-total');
+  tg.innerHTML='<div class="stat-card"><span class="stat-value ok">'+fmtBytes(t.bytes||0)+'</span><span class="stat-label">Total Sent</span></div>'
+    +'<div class="stat-card"><span class="stat-value info">'+fmtNum(t.pkts||0)+'</span><span class="stat-label">Packets</span></div>'
+    +'<div class="stat-card"><span class="stat-value" style="color:var(--danger)">'+fmtNum(t.drops||0)+'</span><span class="stat-label">Drops</span></div>'
+    +'<div class="stat-card"><span class="stat-value" style="color:var(--warning)">'+fmtNum(t.overlimits||0)+'</span><span class="stat-label">Overlimits</span></div>';
+  var tins=data.tins||[];
+  var maxBytes=1;
+  tins.forEach(function(tn){if((tn.bytes||0)>maxBytes)maxBytes=tn.bytes;});
+  var html='';
+  tins.forEach(function(tn){
+    var pct=maxBytes>0?((tn.bytes||0)/maxBytes*100):0;
+    var c=tinColors[tn.name]||'#8b949e';
+    html+='<div class="tin-card">';
+    html+='<div class="tin-header"><span class="tin-icon">'+(tn.icon||'')+'</span><span class="tin-name">'+tn.name+'</span><span class="tin-dscp">'+(tn.dscp||'')+'</span></div>';
+    html+='<div class="tin-thresh">Threshold: '+(tn.thresh||'-')+'</div>';
+    html+='<div class="tin-bar-wrap"><div class="tin-bar-fill" style="width:'+pct+'%;background:'+c+'"></div></div>';
+    html+='<div class="tin-stat-row"><span class="tin-label">Packets</span><span class="tin-val">'+fmtNum(tn.pkts||0)+'</span></div>';
+    html+='<div class="tin-stat-row"><span class="tin-label">Bytes</span><span class="tin-val">'+fmtBytes(tn.bytes||0)+'</span></div>';
+    html+='<div class="tin-stat-row"><span class="tin-label">Drops</span><span class="tin-val" style="'+(tn.drops?'color:var(--danger)':'')+'">'+fmtNum(tn.drops||0)+'</span></div>';
+    html+='<div class="tin-stat-row"><span class="tin-label">Marks</span><span class="tin-val">'+fmtNum(tn.marks||0)+'</span></div>';
+    html+='<div class="tin-stat-row"><span class="tin-label">Max Frame</span><span class="tin-val">'+fmtNum(tn.max_len||0)+' B</span></div>';
+    html+='<div class="tin-stat-row"><span class="tin-label">Flows (sp/bk)</span><span class="tin-val">'+(tn.sp_flows||0)+' / '+(tn.bk_flows||0)+'</span></div>';
+    html+='<div class="delay-row">';
+    html+='<div class="delay-item"><div class="delay-label">Peak</div><div class="delay-val">'+(tn.pk_delay||'-')+'</div></div>';
+    html+='<div class="delay-item"><div class="delay-label">Avg</div><div class="delay-val">'+(tn.av_delay||'-')+'</div></div>';
+    html+='<div class="delay-item"><div class="delay-label">Spike</div><div class="delay-val">'+(tn.sp_delay||'-')+'</div></div>';
+    html+='</div>';
+    html+='<div class="tin-stat-row"><span class="tin-label">Way inds/miss</span><span class="tin-val">'+fmtNum(tn.way_inds||0)+' / '+fmtNum(tn.way_miss||0)+'</span></div>';
+    html+='</div>';
+  });
+  document.getElementById('traffic-'+prefix+'-tins').innerHTML=html;
+}
+
+function renderTinCharts(data,prefix){
+  var tins=data.tins||[];
+  var labels=tins.map(function(t){return t.name;});
+  var colors=tins.map(function(t){return tinColors[t.name]||'#8b949e';});
+  var pkts=tins.map(function(t){return t.pkts||0;});
+  var bytes=tins.map(function(t){return t.bytes||0;});
+  var pktId=prefix+'PktChart';
+  var byteId=prefix+'ByteChart';
+  if(cakeCharts[pktId]) cakeCharts[pktId].destroy();
+  if(cakeCharts[byteId]) cakeCharts[byteId].destroy();
+  var pctx=document.getElementById(pktId);
+  var bctx=document.getElementById(byteId);
+  if(!pctx||!bctx) return;
+  cakeCharts[pktId]=new Chart(pctx.getContext('2d'),{
+    type:'doughnut',
+    data:{labels:labels,datasets:[{data:pkts,backgroundColor:colors,borderWidth:0}]},
+    options:{responsive:true,maintainAspectRatio:false,cutout:'55%',plugins:{legend:{display:false}}}
+  });
+  cakeCharts[byteId]=new Chart(bctx.getContext('2d'),{
+    type:'doughnut',
+    data:{labels:labels,datasets:[{data:bytes,backgroundColor:colors,borderWidth:0}]},
+    options:{responsive:true,maintainAspectRatio:false,cutout:'55%',plugins:{legend:{display:false}}}
+  });
+}
+
+loadTrafficData();
+
+setInterval(function(){
+  fetch('/api/qos/traffic').then(function(r){return r.json();}).then(function(data){
+    window.manualRulesStats=data.manual_rules_stats||[];
+    renderPrioMapping(data.priorities||[], data.ifaces&&data.ifaces.wan||{});
+    renderManualRules(data.manual_rules||[]);
+    renderAllIfaces(data);
+  }).catch(function(){});
+},30000);
+</script>
+{% endblock %}

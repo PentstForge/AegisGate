@@ -1,0 +1,394 @@
+{% extends "base.html" %}
+{% block title %}Events Timeline{% endblock %}
+{% block page_title %}Events Timeline{% endblock %}
+{% block head %}
+<script src="/static/chart.min.js"></script>
+{% endblock %}
+{% block content %}
+<style>
+.timeline-page { display: flex; flex-direction: column; gap: 14px; }
+.zoom-segment { display: inline-flex; gap: 4px; padding: 4px; background: color-mix(in srgb, var(--bg-primary) 65%, transparent); border: 1px solid var(--border); border-radius: 999px; flex-shrink: 0; }
+.zoom-segment button { border: 0; background: transparent; color: var(--text-secondary); border-radius: 999px; padding: 7px 12px; font-size: 12px; font-weight: 700; cursor: pointer; transition: .15s ease; }
+.zoom-segment button:hover { color: var(--text-primary); background: var(--bg-tertiary); }
+.zoom-segment button.active { background: var(--accent); color: #fff; box-shadow: 0 6px 16px color-mix(in srgb, var(--accent) 28%, transparent); }
+.timeline-chart-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px; padding: 14px; box-shadow: 0 8px 22px rgba(0,0,0,.12); }
+.card-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; }
+.card-title { display: flex; align-items: center; gap: 8px; color: var(--text-primary); font-size: 14px; font-weight: 800; }
+.card-title .pulse { width: 9px; height: 9px; border-radius: 50%; background: var(--success); box-shadow: 0 0 0 5px color-mix(in srgb, var(--success) 16%, transparent); }
+.chart-legend { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.legend-pill { display: inline-flex; align-items: center; gap: 6px; padding: 5px 8px; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 999px; color: var(--text-secondary); font-size: 11px; font-weight: 700; }
+.legend-pill .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.chart-wrap { height: min(460px, 48vh); min-height: 280px; position: relative; }
+.intel-header { display: flex; justify-content: space-between; align-items: flex-end; gap: 14px; margin-top: 4px; }
+.section-title { color: var(--text-primary); font-size: 16px; font-weight: 850; display: flex; align-items: center; gap: 8px; }
+.section-desc { color: var(--text-secondary); font-size: 12px; margin-top: 4px; }
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+.content-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(320px, .85fr); gap: 14px; margin-top: 12px; }
+.chart-box { height: 350px; }
+.loading-spinner { display: flex; align-items: center; justify-content: center; min-height: 220px; color: var(--text-secondary); font-size: 13px; }
+.loading-spinner::before { content: ''; width: 14px; height: 14px; margin-right: 8px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
+.loading-spinner.error { color: var(--danger); }
+.loading-spinner.error::before { display: none; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.attacker-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.attacker-table th { text-align: left; padding: 9px 10px; color: var(--text-secondary); background: var(--bg-tertiary); border-bottom: 1px solid var(--border); font-size: 10px; text-transform: uppercase; letter-spacing: .08em; }
+.attacker-table td { padding: 8px 10px; color: var(--text-primary); border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent); }
+.attacker-table tr:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.attacker-table .flag { font-size: 16px; width: 42px; }
+.attacker-table .ip { font-family: 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace; font-size: 11px; }
+.attacker-table .org { color: var(--text-secondary); font-size: 11px; max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
+.hits-bar { display: inline-block; height: 10px; border-radius: 999px; min-width: 5px; vertical-align: middle; margin-right: 6px; }
+.detail-list > div { background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 12px; padding: 10px; margin-bottom: 8px; }
+.country-row { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 5px 0; }
+.country-row .cf { font-size: 18px; width: 24px; text-align: center; }
+.country-row .cname { color: var(--text-secondary); flex: 1; }
+.country-row .ccount { color: var(--text-primary); font-weight: 800; font-variant-numeric: tabular-nums; }
+.rule-bar { display: grid; grid-template-columns: 160px minmax(0, 1fr) 58px; align-items: center; gap: 8px; margin-bottom: 7px; font-size: 12px; }
+.rule-name { color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rule-bar-wrap { background: var(--bg-tertiary); border-radius: 999px; height: 14px; overflow: hidden; border: 1px solid var(--border); }
+.rule-bar-fill { display: block; height: 100%; border-radius: 999px; }
+.rule-count { text-align: right; color: var(--text-primary); font-weight: 800; font-variant-numeric: tabular-nums; }
+@media (max-width: 1100px) { .content-grid { grid-template-columns: 1fr; } }
+@media (max-width: 760px) { .intel-header, .card-head { flex-direction: column; align-items: stretch; } .zoom-segment { width: 100%; justify-content: space-between; } .zoom-segment button { flex: 1; } .chart-wrap { min-height: 280px; height: 320px; } }
+</style>
+
+<div class="timeline-page">
+  <section class="page-hero">
+    <div class="page-hero-top">
+      <div>
+        <div class="page-kicker">Security telemetry</div>
+        <div class="page-title">Events Timeline</div>
+        <div class="page-subtitle">Live security events, attack patterns, noisy ports, SSH attempts and IDS signals grouped by the selected time window.</div>
+      </div>
+      <div class="zoom-segment" aria-label="Timeline range">
+        <button onclick="setZoom('5m')" class="{% if zoom=='5m' %}active{% endif %}">5m</button>
+        <button onclick="setZoom('1h')" class="{% if zoom=='1h' %}active{% endif %}">1h</button>
+        <button onclick="setZoom('24h')" class="{% if zoom=='24h' %}active{% endif %}">24h</button>
+        <button onclick="setZoom('7d')" class="{% if zoom=='7d' %}active{% endif %}">7d</button>
+      </div>
+    </div>
+
+    <div class="kpi-grid">
+      <div class="kpi-card accent"><div class="kpi-label">Drops</div><div class="kpi-value">{{ summary.total_drops }}</div><div class="kpi-note">Selected period</div></div>
+      <div class="kpi-card danger"><div class="kpi-label">SSH Fails</div><div class="kpi-value">{{ summary.total_ssh }}</div><div class="kpi-note">Auth attempts</div></div>
+      <div class="kpi-card warn"><div class="kpi-label">Suricata</div><div class="kpi-value">{{ summary.total_suricata }}</div><div class="kpi-note">IDS alerts</div></div>
+      <div class="kpi-card purple"><div class="kpi-label">CrowdSec Bans</div><div class="kpi-value">{{ summary.total_cs_bans }}</div><div class="kpi-note">Decisions</div></div>
+      <div class="kpi-card"><div class="kpi-label">Peak Drops</div><div class="kpi-value">{{ summary.max_drops }}</div><div class="kpi-note">Max bucket</div></div>
+    </div>
+  </section>
+
+  <section class="timeline-chart-card">
+    <div class="card-head">
+      <div class="card-title"><span class="pulse"></span> Event Flow</div>
+      <div class="chart-legend">
+        <span class="legend-pill"><span class="dot" style="background:#58a6ff"></span> Drops</span>
+        <span class="legend-pill"><span class="dot" style="background:#f85149"></span> SSH</span>
+        <span class="legend-pill"><span class="dot" style="background:#d29922"></span> Suricata</span>
+        <span class="legend-pill"><span class="dot" style="background:#a371f7"></span> CS Bans</span>
+      </div>
+    </div>
+    <div class="chart-wrap"><canvas id="timelineChart"></canvas></div>
+  </section>
+
+  <section>
+    <div class="intel-header">
+      <div>
+        <div class="section-title">&#x1F4CA; Attack Intelligence</div>
+        <div class="section-desc">Breakdown by destination port, source IP, country, firewall rule and SSH brute-force attempts.</div>
+      </div>
+      <div class="page-tabs">
+        <button class="page-tab active" onclick="showTab('ports', this)">Ports</button>
+        <button class="page-tab" onclick="showTab('attackers', this)">Attackers</button>
+        <button class="page-tab" onclick="showTab('countries', this)">Countries</button>
+        <button class="page-tab" onclick="showTab('rules', this)">Rules</button>
+        <button class="page-tab" onclick="showTab('ssh', this)">SSH</button>
+      </div>
+    </div>
+
+    <div id="tab-ports" class="tab-panel active">
+      <div id="ports-loading" class="loading-spinner">Loading port statistics...</div>
+      <div id="ports-content" style="display:none">
+        <div class="content-grid">
+          <div class="panel-card">
+            <div class="panel-card-title">Top Attacked Ports <span>hits</span></div>
+            <div class="chart-box"><canvas id="portsChart"></canvas></div>
+          </div>
+          <div class="panel-card">
+            <div class="panel-card-title">Port Details <span>top 10</span></div>
+            <div id="port-detail-list" class="detail-list"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="tab-attackers" class="tab-panel">
+      <div id="attackers-loading" class="loading-spinner">Loading attacker data...</div>
+      <div id="attackers-content" style="display:none">
+        <div class="panel-card" style="margin-top:12px">
+          <div class="panel-card-title">Top Sources <span>risk activity</span></div>
+          <div class="tbl-wrap">
+            <table class="attacker-table">
+              <thead><tr><th>Flag</th><th>IP</th><th>Hits</th><th>Ports</th><th>Organization</th></tr></thead>
+              <tbody id="attackers-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="tab-countries" class="tab-panel">
+      <div id="countries-loading" class="loading-spinner">Loading country data...</div>
+      <div id="countries-content" style="display:none">
+        <div class="content-grid">
+          <div class="panel-card">
+            <div class="panel-card-title">Attacks by Country <span>distribution</span></div>
+            <div class="chart-box"><canvas id="countriesChart"></canvas></div>
+          </div>
+          <div class="panel-card">
+            <div class="panel-card-title">Country Ranking <span>top sources</span></div>
+            <div id="country-ranking"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="tab-rules" class="tab-panel">
+      <div id="rules-loading" class="loading-spinner">Loading rule data...</div>
+      <div id="rules-content" style="display:none">
+        <div class="content-grid">
+          <div class="panel-card">
+            <div class="panel-card-title">Drop Rules <span>share</span></div>
+            <div class="chart-box"><canvas id="rulesChart"></canvas></div>
+          </div>
+          <div class="panel-card">
+            <div class="panel-card-title">Rule Ranking <span>events</span></div>
+            <div id="rules-bar-list"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="tab-ssh" class="tab-panel">
+      <div id="ssh-loading" class="loading-spinner">Loading SSH data...</div>
+      <div id="ssh-content" style="display:none">
+        <div class="panel-card" style="margin-top:12px">
+          <div class="panel-card-title">Top SSH Brute-Force IPs <span>attempts</span></div>
+          <div class="tbl-wrap">
+            <table class="attacker-table">
+              <thead><tr><th>Flag</th><th>IP</th><th>Attempts</th></tr></thead>
+              <tbody id="ssh-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+var chartData = {{ chart_data|safe }};
+var chartTextColor = getComputedStyle(document.documentElement).getPropertyValue('--text-secondary').trim() || '#8b949e';
+var chartGridColor = getComputedStyle(document.documentElement).getPropertyValue('--border').trim() || '#30363d';
+var ctx = document.getElementById('timelineChart').getContext('2d');
+var chart = new Chart(ctx, {
+  type: 'line',
+  data: {
+    labels: chartData.labels,
+    datasets: [
+      { label: 'Drops', data: chartData.drops, borderColor: '#58a6ff', backgroundColor: 'rgba(88,166,255,0.12)', fill: true, tension: 0.35, pointRadius: chartData.labels.length > 100 ? 0 : 2, borderWidth: 2 },
+      { label: 'SSH Fails', data: chartData.ssh_fail, borderColor: '#f85149', backgroundColor: 'rgba(248,81,73,0.10)', fill: true, tension: 0.35, pointRadius: chartData.labels.length > 100 ? 0 : 2, borderWidth: 2 },
+      { label: 'Suricata', data: chartData.suricata, borderColor: '#d29922', backgroundColor: 'rgba(210,153,34,0.10)', fill: true, tension: 0.35, pointRadius: chartData.labels.length > 100 ? 0 : 2, borderWidth: 2 },
+      { label: 'CS Bans', data: chartData.cs_bans, borderColor: '#a371f7', backgroundColor: 'rgba(163,113,247,0.10)', fill: true, tension: 0.35, pointRadius: chartData.labels.length > 100 ? 0 : 2, borderWidth: 2 }
+    ]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
+    scales: {
+      x: { ticks: { color: chartTextColor, maxTicksLimit: 12, maxRotation: 0 }, grid: { color: colorMix(chartGridColor, .42) } },
+      y: { ticks: { color: chartTextColor, precision: 0 }, grid: { color: colorMix(chartGridColor, .42) }, beginAtZero: true }
+    },
+    plugins: { legend: { display: false }, tooltip: { backgroundColor: 'rgba(13,17,23,.92)', padding: 10, cornerRadius: 8 } }
+  }
+});
+
+function colorMix(color, alpha) {
+  if (color.startsWith('#')) {
+    var r = parseInt(color.slice(1,3), 16), g = parseInt(color.slice(3,5), 16), b = parseInt(color.slice(5,7), 16);
+    return 'rgba(' + r + ',' + g + ',' + b + ',' + alpha + ')';
+  }
+  return 'rgba(139,148,158,' + alpha + ')';
+}
+
+function setZoom(z) { window.location.href = '/timeline?zoom=' + z; }
+
+var portStatsData = null;
+var portsChart = null;
+var countriesChart = null;
+var rulesChart = null;
+var portColors = ['#f85149','#d29922','#58a6ff','#a371f7','#3fb950','#f0883e','#79c0ff','#d2a8ff','#56d364','#ff7b72','#e3b341','#7ee787','#ffa657','#bc8cff','#39d353','#f778ba','#a5d6ff','#ffc680','#8b949e','#db61a2'];
+
+function showTab(name, btn) {
+  document.querySelectorAll('.tab-panel').forEach(function(p) { p.classList.remove('active'); });
+  document.querySelectorAll('.page-tab').forEach(function(b) { b.classList.remove('active'); });
+  document.getElementById('tab-' + name).classList.add('active');
+  if (btn) btn.classList.add('active');
+  setTimeout(function(){
+    if (name === 'ports' && portsChart) portsChart.resize();
+    if (name === 'countries' && countriesChart) countriesChart.resize();
+    if (name === 'rules' && rulesChart) rulesChart.resize();
+  }, 40);
+}
+
+function emptyState(text) { return '<div style="color:var(--text-secondary);font-size:12px;padding:18px;text-align:center;border:1px dashed var(--border);border-radius:12px">' + text + '</div>'; }
+
+function esc(value) {
+  return String(value == null ? '' : value).replace(/[&<>"']/g, function(ch) {
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];
+  });
+}
+
+function setStatsError(message) {
+  ['ports','attackers','countries','rules','ssh'].forEach(function(name) {
+    var el = document.getElementById(name + '-loading');
+    if (el) { el.classList.add('error'); el.textContent = message; }
+  });
+}
+
+function loadPortStats() {
+  fetch('/api/port-stats?period={{ zoom }}').then(function(r) { return r.json(); }).then(function(data) {
+    portStatsData = data;
+    renderPorts(data); renderAttackers(data); renderCountries(data); renderRules(data); renderSSH(data);
+    ['ports','attackers','countries','rules','ssh'].forEach(function(name){
+      document.getElementById(name + '-loading').style.display = 'none';
+      document.getElementById(name + '-content').style.display = 'block';
+    });
+  }).catch(function(err) { console.error('port-stats error:', err); setStatsError('Could not load attack statistics'); });
+}
+
+function renderPorts(data) {
+  var ports = data.top_ports || [];
+  var maxHits = ports.length > 0 ? ports[0].hits : 1;
+  if (portsChart) portsChart.destroy();
+  if (!ports.length) {
+    document.getElementById('portsChart').style.display = 'none';
+    document.getElementById('port-detail-list').innerHTML = emptyState('No port activity in the selected period');
+    return;
+  }
+  document.getElementById('portsChart').style.display = '';
+  var pctx = document.getElementById('portsChart').getContext('2d');
+  portsChart = new Chart(pctx, {
+    type: 'bar',
+    data: { labels: ports.map(function(p) { return p.port + ' \u00b7 ' + p.name; }), datasets: [{ label: 'Hits', data: ports.map(function(p) { return p.hits; }), backgroundColor: ports.map(function(_, i) { return portColors[i % portColors.length]; }), borderRadius: 8, barThickness: 16 }] },
+    options: { responsive: true, maintainAspectRatio: false, indexAxis: 'y', plugins: { legend: { display: false } }, scales: { x: { ticks: { color: chartTextColor, precision: 0 }, grid: { color: colorMix(chartGridColor, .35) }, beginAtZero: true }, y: { ticks: { color: chartTextColor, font: { size: 11 } }, grid: { display: false } } } }
+  });
+
+  var html = '';
+  ports.slice(0, 10).forEach(function(p, i) {
+    var pct = maxHits > 0 ? (p.hits / maxHits * 100) : 0;
+    var color = portColors[i % portColors.length];
+    var topIPs = (p.ips || []).slice(0, 3).map(function(ip) { return '<span class="ip">' + esc(ip.flag || '') + ' ' + esc(ip.ip) + '</span> <small>(' + esc(ip.count) + ')</small>'; }).join(', ');
+    var ruleBadges = (p.rules || []).slice(0, 2).map(function(r) { return '<span style="display:inline-block;padding:2px 7px;border-radius:999px;font-size:10px;background:' + esc(r.color) + '22;color:' + esc(r.color) + ';border:1px solid ' + esc(r.color) + '55;font-weight:700">' + esc(r.cat) + '</span>'; }).join(' ');
+    html += '<div><div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px"><div><strong style="color:' + color + ';font-size:18px">' + esc(p.port) + '</strong> <span style="color:var(--text-secondary);font-size:12px">' + esc(p.name) + '</span></div><span style="font-weight:850">' + esc(p.hits) + '</span></div>';
+    html += '<div style="background:var(--bg-primary);border-radius:999px;height:7px;margin:7px 0;overflow:hidden"><div style="height:100%;width:' + pct + '%;background:' + color + ';border-radius:999px"></div></div>';
+    html += '<div style="font-size:11px;color:var(--text-secondary);line-height:1.45">' + (topIPs || 'No sources') + '</div><div style="margin-top:6px;display:flex;gap:5px;flex-wrap:wrap">' + ruleBadges + '</div></div>';
+  });
+  document.getElementById('port-detail-list').innerHTML = html;
+}
+
+function renderAttackers(data) {
+  var attackers = data.top_attackers || [];
+  if (!attackers.length) { document.getElementById('attackers-tbody').innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-secondary);padding:18px">No attacker data in the selected period</td></tr>'; return; }
+  var maxHits = attackers[0].hits;
+  var html = '';
+  attackers.forEach(function(a) {
+    var pct = maxHits > 0 ? (a.hits / maxHits * 100) : 0;
+    html += '<tr><td class="flag">' + esc(a.flag || '-') + '</td><td class="ip">' + esc(a.ip) + '</td><td><span class="hits-bar" style="width:' + Math.max(pct, 5) + '%;background:var(--danger)"></span>' + esc(a.hits) + '</td><td style="color:var(--text-secondary)">' + esc(a.ports_scanned) + '</td><td class="org">' + esc(a.asn_org || (a.country_name || '')) + '</td></tr>';
+  });
+  document.getElementById('attackers-tbody').innerHTML = html;
+}
+
+function renderCountries(data) {
+  var rawCountries = data.country_stats || [];
+  var countries = rawCountries.filter(function(c) { return c.country && c.country !== 'XX' && c.country !== 'LOCAL'; });
+  if (!countries.length) {
+    if (countriesChart) countriesChart.destroy();
+    document.getElementById('countriesChart').style.display = 'none';
+    document.getElementById('country-ranking').innerHTML = emptyState('No country data in the selected period');
+    return;
+  }
+  document.getElementById('countriesChart').style.display = '';
+  var maxHits = countries[0].hits;
+  if (countriesChart) countriesChart.destroy();
+  var cctx = document.getElementById('countriesChart').getContext('2d');
+  countriesChart = new Chart(cctx, {
+    type: 'bar',
+    data: { labels: countries.map(function(c) { return c.flag + ' ' + c.country; }), datasets: [{ label: 'Attacks', data: countries.map(function(c) { return c.hits; }), backgroundColor: countries.map(function(_, i) { return portColors[i % portColors.length]; }), borderRadius: 8 }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: chartTextColor, font: { size: 11 } }, grid: { display: false } }, y: { ticks: { color: chartTextColor, precision: 0 }, grid: { color: colorMix(chartGridColor, .35) }, beginAtZero: true } } }
+  });
+
+  var html = '';
+  countries.forEach(function(c, i) {
+    var pct = maxHits > 0 ? (c.hits / maxHits * 100) : 0;
+    html += '<div class="country-row"><span class="cf">' + esc(c.flag) + '</span><span class="cname">' + esc(c.country) + '</span><span class="ccount">' + esc(c.hits) + '</span></div>';
+    html += '<div style="background:var(--bg-tertiary);border-radius:999px;height:5px;margin-bottom:8px;overflow:hidden"><div style="height:100%;width:' + pct + '%;background:' + portColors[i % portColors.length] + ';border-radius:999px"></div></div>';
+  });
+  document.getElementById('country-ranking').innerHTML = html;
+}
+
+function renderRules(data) {
+  var rules = data.rule_counts || [];
+  if (!rules.length) {
+    if (rulesChart) rulesChart.destroy();
+    document.getElementById('rulesChart').style.display = 'none';
+    document.getElementById('rules-bar-list').innerHTML = emptyState('No rule data in the selected period');
+    return;
+  }
+  document.getElementById('rulesChart').style.display = '';
+  if (rulesChart) rulesChart.destroy();
+  var rctx = document.getElementById('rulesChart').getContext('2d');
+  rulesChart = new Chart(rctx, { type: 'doughnut', data: { labels: rules.map(function(r) { return r.cat; }), datasets: [{ data: rules.map(function(r) { return r.count; }), backgroundColor: rules.map(function(r) { return r.color || '#8b949e'; }), borderWidth: 0 }] }, options: { responsive: true, maintainAspectRatio: false, cutout: '62%', plugins: { legend: { position: 'bottom', labels: { color: chartTextColor, font: { size: 11 }, padding: 10, usePointStyle: true } } } } });
+
+  var maxCount = rules[0].count;
+  var html = '';
+  rules.forEach(function(r) {
+    var pct = maxCount > 0 ? (r.count / maxCount * 100) : 0;
+    html += '<div class="rule-bar"><span class="rule-name">' + esc(r.rule) + '</span><span class="rule-bar-wrap"><span class="rule-bar-fill" style="width:' + pct + '%;background:' + esc(r.color) + '"></span></span><span class="rule-count">' + esc(r.count) + '</span></div>';
+  });
+  document.getElementById('rules-bar-list').innerHTML = html;
+}
+
+function renderSSH(data) {
+  var ips = data.ssh_top_ips || [];
+  if (!ips.length) { document.getElementById('ssh-tbody').innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--text-secondary);padding:18px">No SSH brute-force data in the selected period</td></tr>'; return; }
+  var html = '';
+  ips.forEach(function(a) { html += '<tr><td class="flag">' + esc(a.flag || '-') + '</td><td class="ip">' + esc(a.ip) + '</td><td style="font-weight:850">' + esc(a.count) + '</td></tr>'; });
+  document.getElementById('ssh-tbody').innerHTML = html;
+}
+
+loadPortStats();
+
+setInterval(function(){
+  fetch('/api/port-stats?period={{ zoom }}').then(function(r){return r.json();}).then(function(data){ portStatsData = data; renderPorts(data); renderAttackers(data); renderCountries(data); renderRules(data); renderSSH(data); }).catch(function(){});
+  fetch('/api/timeline?zoom={{ zoom }}').then(function(r){return r.json();}).then(function(tl){
+    var buckets = tl.buckets || [];
+    if(buckets.length && chart){
+      var max_points = 300;
+      var step = buckets.length > max_points ? Math.floor(buckets.length / max_points) : 1;
+      if(step > 1) buckets = buckets.filter(function(_,i){return i % step === 0;});
+      chart.data.labels = buckets.map(function(b){return b.ts.length > 16 ? b.ts.slice(-8) : b.ts;});
+      chart.data.datasets[0].data = buckets.map(function(b){return b.drops||0;});
+      chart.data.datasets[1].data = buckets.map(function(b){return b.ssh_fail||0;});
+      chart.data.datasets[2].data = buckets.map(function(b){return b.suricata||0;});
+      chart.data.datasets[3].data = buckets.map(function(b){return b.cs_bans||0;});
+      chart.update('none');
+    }
+    var s = tl.summary || {};
+    var kpis = document.querySelectorAll('.kpi-value');
+    if(kpis.length>=5){kpis[0].textContent=s.total_drops||0;kpis[1].textContent=s.total_ssh||0;kpis[2].textContent=s.total_suricata||0;kpis[3].textContent=s.total_cs_bans||0;kpis[4].textContent=s.max_drops||0;}
+  }).catch(function(){});
+},60000);
+</script>
+{% endblock %}
