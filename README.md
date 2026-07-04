@@ -1,8 +1,19 @@
-# 🛡️ AegisGate
+<p align="center">
+  <img src="static/img/logo.png" alt="AegisGate" width="128" height="128">
+</p>
 
-**All-in-one network security gateway for Linux** — firewall, DNS filtering, intrusion prevention, VPN, QoS, and real-time threat intelligence in a single self-hosted appliance.
+<h1 align="center">AegisGate</h1>
 
-Built by [**PentestForge**](https://pentest-forge.com) — AI-powered offensive security platform.
+<p align="center"><strong>Smart Network Security</strong></p>
+
+<p align="center">
+  All-in-one network security gateway for Linux — firewall, DNS filtering, intrusion prevention, VPN, QoS, and real-time threat intelligence in a single self-hosted appliance.
+</p>
+
+<p align="center">
+  Built by <a href="https://pentest-forge.com"><strong>PentestForge</strong></a> — AI-powered offensive security platform.<br>
+  Website: <a href="https://aegisgate.net">aegisgate.net</a> &middot; Demo: <a href="https://aegisgate.net/demo/">Live Demo</a>
+</p>
 
 ---
 
