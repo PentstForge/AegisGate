@@ -107,8 +107,10 @@ rm -f /etc/network/interfaces.aegisgate-backup 2>/dev/null || true
 
 step "Restarting remaining services"
 systemctl restart rsyslog 2>/dev/null || true
-systemctl restart crowdsec 2>/dev/null || true
-systemctl restart crowdsec-firewall-bouncer 2>/dev/null || true
+
+systemctl stop nftables crowdsec crowdsec-firewall-bouncer suricata
+systemctl disable nftables crowdsec crowdsec-firewall-bouncer suricata
+
 
 printf "\n%bAegisGate uninstalled successfully.%b\n" "$GREEN" "$NC"
 warn "Note: CrowdSec, Suricata, dnsmasq packages remain installed (use apt/dnf to remove)"
