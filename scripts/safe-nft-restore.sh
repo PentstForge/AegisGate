@@ -11,19 +11,19 @@ if ! "$NFT" list table ip nat >/dev/null 2>&1; then
 cat > "$NAT_CONF" <<'NATCONF'
 table ip nat {
     chain PREROUTING {
-        type nat hook prerouting priority dstnat; policy accept;
+        type nat hook prerouting priority -100; policy accept;
     }
 
     chain INPUT {
-        type nat hook input priority srcnat; policy accept;
+        type nat hook input priority 100; policy accept;
     }
 
     chain OUTPUT {
-        type nat hook output priority dstnat; policy accept;
+        type nat hook output priority -100; policy accept;
     }
 
     chain POSTROUTING {
-        type nat hook postrouting priority srcnat; policy accept;
+        type nat hook postrouting priority 100; policy accept;
         oifname "eth0" masquerade
     }
 }
@@ -145,7 +145,7 @@ table inet filter {
         ip protocol igmp accept
         udp dport { 53, 67, 68, 51820 } accept
         tcp dport 22 limit rate over 3/minute burst 5 packets log prefix "DROP_SSH_BRUTE: " drop
-        iifname "eth0" ct state new tcp dport { 22, 80, 443, 222, 3000, 3331, 5194 } queue flags bypass to 0
+        iifname "eth0" ct state new tcp dport { 22, 80, 443, 222, 3000, 3331, 5194 } queue num 0 bypass
         tcp dport { 22, 80, 443, 222, 3000, 3331, 5194 } accept
         ct state invalid log prefix "DROP_INVALID_INPUT: " drop
         ct state new log prefix "DROP_DEFAULT_IN: " drop
@@ -172,7 +172,7 @@ table inet filter {
         ip6 saddr @blacklist_ipv6 ct state new log prefix "DROP_CROWDSEC_FWD6: " drop
         ip saddr @crowdsec-blacklists ct state new log prefix "DROP_CROWDSEC_FWD: " drop
         ip6 saddr @crowdsec6-blacklists ct state new log prefix "DROP_CROWDSEC_FWD6: " drop
-        ct state new ct status dnat queue flags bypass to 0
+        ct state new ct status dnat queue num 0 bypass
         ct status dnat accept
         ip daddr @ipbl_ipv4 ct state new log prefix "DROP_IPBL_DADDR_FORWARD: " drop
         ip6 daddr @ipbl_ipv6 ct state new log prefix "DROP_IPBL_DADDR_FORWARD: " drop
@@ -240,5 +240,5 @@ cd /opt/nft-dashboard 2>/dev/null && python3 -c "from modules.ip_blocklists impo
 # Restore aegis_dns_services nft table
 python3 /opt/nft-dashboard/scripts/dns_apply_service_blocks.py 2>/dev/null || true
 
-ping -c 1 -W 2 google.com >/dev/null
-printf 'AegisGate safe nft restore applied, internet OK\n'
+ping -c 1 -W 2 google.com >/dev/null 2>&1 || true
+printf 'AegisGate safe nft restore applied\n'
