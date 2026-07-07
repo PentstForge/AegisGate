@@ -516,7 +516,7 @@
     <div id="add-client-form" style="display:none;margin-top:10px">
       <form method="POST" action="/dns/add-client" class="form-grid" onsubmit="event.preventDefault();ajaxForm(event,this,function(r){showToast(r.message||'Added');document.getElementById('add-client-form').style.display='none';reloadTab('clients')})">
         <div class="form-group"><label>Name</label><input type="text" name="name" placeholder="My Phone"></div>
-        <div class="form-group"><label>IP Address</label><input type="text" name="ip" placeholder="192.168.1.10"></div>
+        <div class="form-group"><label>IP Address</label><input type="text" name="ip" placeholder="172.24.1.10"></div>
         <div class="form-group"><label>MAC Address</label><input type="text" name="mac" placeholder="AA:BB:CC:DD:EE:FF"></div>
         <div class="form-group"><label>Policy</label>
           <select name="policy_id">
@@ -807,7 +807,7 @@
             <option value="trusted_proxy">Trusted Proxy</option>
           </select>
         </div>
-        <div class="form-group"><label>Value (IP, CIDR, or domain)</label><input type="text" name="value" placeholder="192.168.1.0/24" required></div>
+        <div class="form-group"><label>Value (IP, CIDR, or domain)</label><input type="text" name="value" placeholder="172.24.1.0/24" required></div>
         <div class="form-group"><label>Comment</label><input type="text" name="comment" placeholder="Office network"></div>
         <div style="grid-column:1/-1;display:flex;gap:8px;margin-top:4px"><button type="submit" class="btn btn-primary">Add Rule</button><button type="button" class="btn btn-secondary" onclick="document.getElementById('add-access-form').style.display='none'">Cancel</button></div>
       </form>
@@ -849,7 +849,7 @@
       <form method="POST" action="/dns/add-local" class="form-grid">
         <div class="form-group"><label>Domain</label><input type="text" name="domain" placeholder="server.lan" required></div>
         <div class="form-group"><label>Type</label><select name="rtype"><option value="A">A</option><option value="AAAA">AAAA</option><option value="CNAME">CNAME</option><option value="TXT">TXT</option><option value="MX">MX</option></select></div>
-        <div class="form-group"><label>Value</label><input type="text" name="value" placeholder="192.168.1.10" required></div>
+        <div class="form-group"><label>Value</label><input type="text" name="value" placeholder="172.24.1.10" required></div>
         <div class="form-group"><label>TTL</label><input type="number" name="ttl" value="60" min="0"></div>
         <div class="form-group"><label>Comment</label><input type="text" name="comment" placeholder="Optional"></div>
         <div style="grid-column:1/-1;display:flex;gap:8px;margin-top:4px"><button type="submit" class="mod-action-btn primary">Add Record</button><button type="button" class="mod-action-btn ghost" onclick="document.getElementById('add-local-form').style.display='none'">Cancel</button></div>
@@ -879,7 +879,7 @@
       <div class="panel-card-title">Add DNS Rewrite</div>
       <form method="POST" action="/dns/add-rewrite" class="form-grid">
         <div class="form-group"><label>Domain</label><input type="text" name="domain" placeholder="app.example.com" required></div>
-        <div class="form-group"><label>Target</label><input type="text" name="target" placeholder="192.168.1.100" required></div>
+        <div class="form-group"><label>Target</label><input type="text" name="target" placeholder="172.24.1.100" required></div>
         <div class="form-group"><label>Type</label><select name="rtype"><option value="CNAME">CNAME</option><option value="A">A</option></select></div>
         <div class="form-group"><label>Comment</label><input type="text" name="comment" placeholder="Optional"></div>
         <div style="grid-column:1/-1;display:flex;gap:8px;margin-top:4px"><button type="submit" class="mod-action-btn primary">Add Rewrite</button><button type="button" class="mod-action-btn ghost" onclick="document.getElementById('add-rewrite-form').style.display='none'">Cancel</button></div>
@@ -1071,7 +1071,7 @@
     <div id="dhcp-add-static-form" style="display:none;margin-top:10px">
       <form method="POST" action="/dns/dhcp/add-static-lease" class="form-grid">
         <div class="form-group"><label>MAC Address</label><input type="text" name="mac" placeholder="AA:BB:CC:DD:EE:FF" required></div>
-        <div class="form-group"><label>IP Address</label><input type="text" name="ip" placeholder="{{ settings.dns_listen_addr or '192.168.1.2' }}" required></div>
+        <div class="form-group"><label>IP Address</label><input type="text" name="ip" placeholder="{{ settings.dns_listen_addr or '172.24.1.2' }}" required></div>
         <div class="form-group"><label>Hostname</label><input type="text" name="hostname" placeholder="my-device"></div>
         <div class="form-group"><label>Comment</label><input type="text" name="comment" placeholder="Optional"></div>
         <div style="grid-column:1/-1;display:flex;gap:8px;margin-top:4px"><button type="submit" class="btn btn-primary">Add</button><button type="button" class="btn btn-secondary" onclick="document.getElementById('dhcp-add-static-form').style.display='none'">Cancel</button></div>
@@ -1149,10 +1149,10 @@
         <p class="mini-note" style="margin:4px 0 8px">Check that range, gateway, and subnet are valid and non-overlapping.</p>
         <form method="POST" action="/dns/dhcp/validate-config" class="form-grid" id="dhcp-validate-form">
           <div class="form-group"><label>Interface</label><input type="text" name="interface" placeholder="eth0"></div>
-          <div class="form-group"><label>Subnet</label><input type="text" name="subnet" placeholder="192.168.1.0/24"></div>
-          <div class="form-group"><label>Range Start</label><input type="text" name="range_start" placeholder="192.168.1.100"></div>
-          <div class="form-group"><label>Range End</label><input type="text" name="range_end" placeholder="192.168.1.250"></div>
-          <div class="form-group"><label>Router</label><input type="text" name="router" placeholder="192.168.1.1"></div>
+          <div class="form-group"><label>Subnet</label><input type="text" name="subnet" placeholder="172.24.1.0/24"></div>
+          <div class="form-group"><label>Range Start</label><input type="text" name="range_start" placeholder="172.24.1.100"></div>
+          <div class="form-group"><label>Range End</label><input type="text" name="range_end" placeholder="172.24.1.250"></div>
+          <div class="form-group"><label>Router</label><input type="text" name="router" placeholder="172.24.1.1"></div>
           <div style="grid-column:1/-1"><button type="submit" class="btn btn-secondary btn-sm">Validate Config</button></div>
         </form>
       </div>

@@ -229,8 +229,30 @@ def ajax_or_redirect(message, section="", error=False):
     suffix = f"#{section}" if section else ""
     prefix = "/dns?message="
     if error:
-        return redirect(f"{prefix}{message}&error=1{suffix}")
-    return redirect(f"{prefix}{message}{suffix}")
+        return _safe_redirect(f"{prefix}{message}&error=1{suffix}")
+    return _safe_redirect(f"{prefix}{message}{suffix}")
+
+
+def _safe_redirect(url):
+    """Redirect with URL-encoded query parameters to prevent header injection.
+
+    Werkzeug 3.x raises ValueError('Header values must not contain newline
+    characters') when the Location header contains raw newlines, which happens
+    when nft/dnsmasq error messages (multi-line stderr) are interpolated into a
+    redirect URL via f-strings. This helper URL-encodes the query string portion
+    of the URL so that newlines, ampersands, and other special characters are
+    safely escaped.
+    """
+    from urllib.parse import urlencode, urlsplit, urlunsplit, parse_qsl
+
+    parts = urlsplit(url)
+    if parts.query:
+        params = parse_qsl(parts.query, keep_blank_values=True)
+        safe_query = urlencode(params, safe="/")
+    else:
+        safe_query = ""
+    safe_url = urlunsplit((parts.scheme, parts.netloc, parts.path, safe_query, parts.fragment))
+    return redirect(safe_url)
 
 
 AUTH_ENABLED = os.environ.get("NFT_DASHBOARD_AUTH", "1") != "0"
@@ -660,7 +682,7 @@ def allowlist_add():
         ok, msg = add_network(value, comment)
     else:
         ok, msg = add_ip(value, comment)
-    return redirect(f"/allowlist?message={msg}&error={0 if ok else 1}")
+    return _safe_redirect(f"/allowlist?message={msg}&error={0 if ok else 1}")
 
 
 @app.route("/allowlist/remove", methods=["POST"])
@@ -671,7 +693,7 @@ def allowlist_remove():
         ok, msg = remove_network(value)
     else:
         ok, msg = remove_ip(value)
-    return redirect(f"/allowlist?message={msg}&error={0 if ok else 1}")
+    return _safe_redirect(f"/allowlist?message={msg}&error={0 if ok else 1}")
 
 
 @app.route("/allowlist/emergency", methods=["POST"])
@@ -679,7 +701,7 @@ def allowlist_emergency():
     action = request.form.get("action", "")
     enable = action == "enable"
     ok, msg = toggle_emergency_bypass(enable)
-    return redirect(f"/allowlist?message={msg}&error={0 if ok else 1}")
+    return _safe_redirect(f"/allowlist?message={msg}&error={0 if ok else 1}")
 
 
 @app.route("/api/allowlist")
@@ -704,8 +726,8 @@ def policy_set():
     mode = request.form.get("mode", "balanced")
     ok, msg = set_policy(mode)
     if ok:
-        return redirect(f"/policy?message={msg}")
-    return redirect(f"/policy?message={msg}&error=1")
+        return _safe_redirect(f"/policy?message={msg}")
+    return _safe_redirect(f"/policy?message={msg}&error=1")
 
 
 @app.route("/api/policy")
@@ -748,7 +770,7 @@ def rules_update():
     ok, msg = update_rule_params(rule_id, params)
     if is_ajax():
         return ajax_ok(msg) if ok else ajax_error(msg)
-    return redirect(f"/rules?message={msg}")
+    return _safe_redirect(f"/rules?message={msg}")
 
 
 @app.route("/api/rules")
@@ -899,32 +921,32 @@ def vpn_init():
     ok, msg = init_server(address=address, listen_port=listen_port, dns=dns, mtu=mtu)
     if ok:
         start_ok, start_msg = start_server()
-        return redirect(f"/vpn?message={msg} {' - '+start_msg if start_ok else ' - '+start_msg}")
-    return redirect(f"/vpn?message={msg}&error=1")
+        return _safe_redirect(f"/vpn?message={msg} {' - '+start_msg if start_ok else ' - '+start_msg}")
+    return _safe_redirect(f"/vpn?message={msg}&error=1")
 
 
 @app.route("/vpn/start", methods=["POST"])
 def vpn_start():
     ok, msg = start_server()
     if ok:
-        return redirect(f"/vpn?message={msg}")
-    return redirect(f"/vpn?message={msg}&error=1")
+        return _safe_redirect(f"/vpn?message={msg}")
+    return _safe_redirect(f"/vpn?message={msg}&error=1")
 
 
 @app.route("/vpn/stop", methods=["POST"])
 def vpn_stop():
     ok, msg = stop_server()
     if ok:
-        return redirect(f"/vpn?message={msg}")
-    return redirect(f"/vpn?message={msg}&error=1")
+        return _safe_redirect(f"/vpn?message={msg}")
+    return _safe_redirect(f"/vpn?message={msg}&error=1")
 
 
 @app.route("/vpn/restart", methods=["POST"])
 def vpn_restart_route():
     ok, msg = restart_server()
     if ok:
-        return redirect(f"/vpn?message={msg}")
-    return redirect(f"/vpn?message={msg}&error=1")
+        return _safe_redirect(f"/vpn?message={msg}")
+    return _safe_redirect(f"/vpn?message={msg}&error=1")
 
 
 @app.route("/vpn/settings", methods=["POST"])
@@ -935,8 +957,8 @@ def vpn_settings():
     mtu = int(request.form.get("mtu", 1420))
     ok, msg = update_server(address=address, listen_port=listen_port, dns=dns, mtu=mtu)
     if ok:
-        return redirect(f"/vpn?message={msg}")
-    return redirect(f"/vpn?message={msg}&error=1")
+        return _safe_redirect(f"/vpn?message={msg}")
+    return _safe_redirect(f"/vpn?message={msg}&error=1")
 
 
 @app.route("/vpn/add-peer", methods=["POST"])
@@ -953,10 +975,10 @@ def vpn_add_peer():
         parts.append("0.0.0.0/0")
     else:
         if lan:
-            parts.append("192.168.1.0/24")
+            parts.append("172.24.1.0/24")
             parts.append("10.0.0.0/24")
         if dmz:
-            parts.append("192.168.1.204/32")
+            parts.append("172.24.1.204/32")
     if custom_networks:
         for cn in custom_networks.split(","):
             cn = cn.strip()
@@ -968,24 +990,24 @@ def vpn_add_peer():
         parts = ",".join(parts)
     peer, msg = add_peer(name=name, allowed_ips=parts, persistent_keepalive=keepalive, notes=notes)
     if peer:
-        return redirect(f"/vpn?message={msg}")
-    return redirect(f"/vpn?message={msg}&error=1")
+        return _safe_redirect(f"/vpn?message={msg}")
+    return _safe_redirect(f"/vpn?message={msg}&error=1")
 
 
 @app.route("/vpn/toggle/<peer_id>", methods=["POST"])
 def vpn_toggle_peer(peer_id):
     ok, msg = toggle_peer(peer_id)
     if ok:
-        return redirect(f"/vpn?message={msg}")
-    return redirect(f"/vpn?message={msg}&error=1")
+        return _safe_redirect(f"/vpn?message={msg}")
+    return _safe_redirect(f"/vpn?message={msg}&error=1")
 
 
 @app.route("/vpn/remove/<peer_id>", methods=["POST"])
 def vpn_remove_peer(peer_id):
     ok, msg = remove_peer(peer_id)
     if ok:
-        return redirect(f"/vpn?message={msg}")
-    return redirect(f"/vpn?message={msg}&error=1")
+        return _safe_redirect(f"/vpn?message={msg}")
+    return _safe_redirect(f"/vpn?message={msg}&error=1")
 
 
 @app.route("/vpn/acl", methods=["POST"])
@@ -997,8 +1019,8 @@ def vpn_acl():
     custom_networks = request.form.get("custom_networks", "").strip()
     ok, msg = update_peer_acl(peer_id, internet=internet, lan=lan, dmz=dmz, custom_networks=custom_networks.split(",") if custom_networks else None)
     if ok:
-        return redirect(f"/vpn?message={msg}")
-    return redirect(f"/vpn?message={msg}&error=1")
+        return _safe_redirect(f"/vpn?message={msg}")
+    return _safe_redirect(f"/vpn?message={msg}&error=1")
 
 
 @app.route("/vpn/peer-config/<peer_id>")
@@ -1128,16 +1150,16 @@ def firewall_add_dnat():
     tp = target_port if target_port else dport
     ok, msg = add_dnat_rule(proto, dport, target_ip, tp, iface, dest_ip)
     if ok:
-        return redirect(f"/firewall?tab=dnat&message={msg}")
-    return redirect(f"/firewall?tab=dnat&error=1&message={msg}")
+        return _safe_redirect(f"/firewall?tab=dnat&message={msg}")
+    return _safe_redirect(f"/firewall?tab=dnat&error=1&message={msg}")
 
 
 @app.route("/firewall/remove-dnat/<handle>", methods=["POST"])
 def firewall_remove_dnat(handle):
     ok, msg = remove_dnat_rule(handle)
     if ok:
-        return redirect(f"/firewall?tab=dnat&message={msg}")
-    return redirect(f"/firewall?tab=dnat&error=1&message={msg}")
+        return _safe_redirect(f"/firewall?tab=dnat&message={msg}")
+    return _safe_redirect(f"/firewall?tab=dnat&error=1&message={msg}")
 
 
 @app.route("/firewall/edit-dnat/<handle>", methods=["POST"])
@@ -1153,8 +1175,8 @@ def firewall_edit_dnat(handle):
     tp = target_port if target_port else dport
     ok, msg = update_dnat_rule(handle, proto, dport, target_ip, tp, iface, dest_ip)
     if ok:
-        return redirect(f"/firewall?tab=dnat&message={msg}")
-    return redirect(f"/firewall?tab=dnat&error=1&message={msg}")
+        return _safe_redirect(f"/firewall?tab=dnat&message={msg}")
+    return _safe_redirect(f"/firewall?tab=dnat&error=1&message={msg}")
 
 
 @app.route("/firewall/add-masq", methods=["POST"])
@@ -1165,16 +1187,16 @@ def firewall_add_masq():
         return redirect("/firewall?tab=nat&error=1&message=Source network is required")
     ok, msg = add_masquerade_rule(source_net, iface)
     if ok:
-        return redirect(f"/firewall?tab=nat&message={msg}")
-    return redirect(f"/firewall?tab=nat&error=1&message={msg}")
+        return _safe_redirect(f"/firewall?tab=nat&message={msg}")
+    return _safe_redirect(f"/firewall?tab=nat&error=1&message={msg}")
 
 
 @app.route("/firewall/remove-masq/<handle>", methods=["POST"])
 def firewall_remove_masq(handle):
     ok, msg = remove_masquerade_rule(handle)
     if ok:
-        return redirect(f"/firewall?tab=nat&message={msg}")
-    return redirect(f"/firewall?tab=nat&error=1&message={msg}")
+        return _safe_redirect(f"/firewall?tab=nat&message={msg}")
+    return _safe_redirect(f"/firewall?tab=nat&error=1&message={msg}")
 
 
 @app.route("/firewall/edit-masq/<handle>", methods=["POST"])
@@ -1185,8 +1207,8 @@ def firewall_edit_masq(handle):
         return redirect("/firewall?tab=nat&error=1&message=Source network is required")
     ok, msg = update_masquerade_rule(handle, source_net, iface)
     if ok:
-        return redirect(f"/firewall?tab=nat&message={msg}")
-    return redirect(f"/firewall?tab=nat&error=1&message={msg}")
+        return _safe_redirect(f"/firewall?tab=nat&message={msg}")
+    return _safe_redirect(f"/firewall?tab=nat&error=1&message={msg}")
 
 
 @app.route("/firewall/add-input", methods=["POST"])
@@ -1204,8 +1226,8 @@ def firewall_add_input():
         return redirect("/firewall?tab=input&error=1&message=Port must be a number")
     ok, msg = add_input_rule(action, proto, port=port, saddr=saddr)
     if ok:
-        return redirect(f"/firewall?tab=input&message={msg}")
-    return redirect(f"/firewall?tab=input&error=1&message={msg}")
+        return _safe_redirect(f"/firewall?tab=input&message={msg}")
+    return _safe_redirect(f"/firewall?tab=input&error=1&message={msg}")
 
 
 @app.route("/firewall/add-forward", methods=["POST"])
@@ -1223,8 +1245,8 @@ def firewall_add_forward():
         return redirect("/firewall?tab=forward&error=1&message=Action is required")
     ok, msg = add_forward_rule(action, iifname=iifname, oifname=oifname, proto=proto, saddr=saddr, daddr=daddr, dport=dport, sport=sport, comment=comment)
     if ok:
-        return redirect(f"/firewall?tab=forward&message={msg}")
-    return redirect(f"/firewall?tab=forward&error=1&message={msg}")
+        return _safe_redirect(f"/firewall?tab=forward&message={msg}")
+    return _safe_redirect(f"/firewall?tab=forward&error=1&message={msg}")
 
 
 @app.route("/firewall/remove-rule/<chain>/<handle>", methods=["POST"])
@@ -1232,8 +1254,8 @@ def firewall_remove_rule(chain, handle):
     tab = request.form.get("tab", "input")
     ok, msg = remove_filter_rule(chain, handle)
     if ok:
-        return redirect(f"/firewall?tab={tab}&message={msg}")
-    return redirect(f"/firewall?tab={tab}&error=1&message={msg}")
+        return _safe_redirect(f"/firewall?tab={tab}&message={msg}")
+    return _safe_redirect(f"/firewall?tab={tab}&error=1&message={msg}")
 
 
 @app.route("/api/firewall/overview")
@@ -1279,7 +1301,7 @@ def api_ipbl_add_list():
     ok, result = ipbl_add_list(name, url=url, fmt=fmt, category=category, description=description)
     if request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.content_type == "application/json":
         return jsonify({"ok": ok, "result": result})
-    return redirect(f"/ip-blocklists?tab=lists&message={'List added' if ok else result}&error={'1' if not ok else '0'}")
+    return _safe_redirect(f"/ip-blocklists?tab=lists&message={'List added' if ok else result}&error={'1' if not ok else '0'}")
 
 
 @app.route("/api/ip-blocklists/lists/<int:list_id>", methods=["POST"])
@@ -1386,8 +1408,8 @@ def qos_apply_profile():
     profile_id = request.form.get("profile_id", "gaming")
     ok, msg = apply_profile(profile_id)
     if ok:
-        return redirect(f"/qos?message={msg}")
-    return redirect(f"/qos?message={msg}&error=1")
+        return _safe_redirect(f"/qos?message={msg}")
+    return _safe_redirect(f"/qos?message={msg}&error=1")
 
 
 @app.route("/qos/update-profile", methods=["POST"])
@@ -1445,8 +1467,8 @@ def qos_update_profile():
         updates["custom_classes"] = custom_classes
     ok, msg = update_profile(profile_id, updates)
     if ok:
-        return redirect(f"/qos?message={msg}")
-    return redirect(f"/qos?message={msg}&error=1")
+        return _safe_redirect(f"/qos?message={msg}")
+    return _safe_redirect(f"/qos?message={msg}&error=1")
 
 
 @app.route("/qos/toggle", methods=["POST"])
@@ -1454,8 +1476,8 @@ def qos_toggle():
     enabled = request.form.get("enabled", "1") == "1"
     ok, msg = toggle_qos(enabled)
     if ok:
-        return redirect(f"/qos?message={msg}")
-    return redirect(f"/qos?message={msg}&error=1")
+        return _safe_redirect(f"/qos?message={msg}")
+    return _safe_redirect(f"/qos?message={msg}&error=1")
 
 
 @app.route("/qos/add-rule", methods=["POST"])
@@ -1469,15 +1491,15 @@ def qos_add_rule():
         return redirect("/qos?message=Match value required&error=1")
     ok, msg = add_manual_rule(rule_type, match_val, bandwidth, priority, comment)
     if ok:
-        return redirect(f"/qos?message={msg}")
-    return redirect(f"/qos?message={msg}&error=1")
+        return _safe_redirect(f"/qos?message={msg}")
+    return _safe_redirect(f"/qos?message={msg}&error=1")
 
 
 @app.route("/qos/remove-rule", methods=["POST"])
 def qos_remove_rule():
     rule_id = request.form.get("rule_id", "")
     ok, msg = remove_manual_rule(rule_id)
-    return redirect(f"/qos?message={msg}")
+    return _safe_redirect(f"/qos?message={msg}")
 
 
 @app.route("/qos/toggle-rule", methods=["POST"])
@@ -1485,15 +1507,15 @@ def qos_toggle_rule():
     rule_id = request.form.get("rule_id", "")
     enabled = request.form.get("enabled", "1") == "1"
     ok, msg = toggle_manual_rule(rule_id, enabled)
-    return redirect(f"/qos?message={msg}")
+    return _safe_redirect(f"/qos?message={msg}")
 
 
 @app.route("/qos/reset-profile/<profile_id>", methods=["POST"])
 def qos_reset_profile(profile_id):
     ok, msg = reset_profile(profile_id)
     if ok:
-        return redirect(f"/qos?message={msg}")
-    return redirect(f"/qos?message={msg}&error=1")
+        return _safe_redirect(f"/qos?message={msg}")
+    return _safe_redirect(f"/qos?message={msg}&error=1")
 
 
 @app.route("/qos/add-class", methods=["POST"])
@@ -1508,8 +1530,8 @@ def qos_add_class():
         return redirect("/qos?message=Key and label required&error=1")
     ok, msg = add_priority_class(class_key, label, ports, networks, protocols, icon)
     if ok:
-        return redirect(f"/qos?message={msg}")
-    return redirect(f"/qos?message={msg}&error=1")
+        return _safe_redirect(f"/qos?message={msg}")
+    return _safe_redirect(f"/qos?message={msg}&error=1")
 
 
 @app.route("/qos/remove-class", methods=["POST"])
@@ -1517,8 +1539,8 @@ def qos_remove_class():
     class_key = request.form.get("class_key", "")
     ok, msg = remove_priority_class(class_key)
     if ok:
-        return redirect(f"/qos?message={msg}")
-    return redirect(f"/qos?message={msg}&error=1")
+        return _safe_redirect(f"/qos?message={msg}")
+    return _safe_redirect(f"/qos?message={msg}&error=1")
 
 
 @app.route("/api/qos/state")
@@ -1675,8 +1697,8 @@ def network_add_route():
         return redirect("/network?message=Destination required&error=1")
     ok, msg = add_route(dst, via, dev, metric)
     if ok:
-        return redirect(f"/network?message={msg}")
-    return redirect(f"/network?message={msg}&error=1")
+        return _safe_redirect(f"/network?message={msg}")
+    return _safe_redirect(f"/network?message={msg}&error=1")
 
 
 @app.route("/network/del-route", methods=["POST"])
@@ -1686,8 +1708,8 @@ def network_del_route():
     dev = request.form.get("dev", "").strip()
     ok, msg = delete_route(dst, via, dev)
     if ok:
-        return redirect(f"/network?message={msg}")
-    return redirect(f"/network?message={msg}&error=1")
+        return _safe_redirect(f"/network?message={msg}")
+    return _safe_redirect(f"/network?message={msg}&error=1")
 
 
 @app.route("/network/set-mtu", methods=["POST"])
@@ -1698,8 +1720,8 @@ def network_set_mtu():
         return redirect("/network?message=Interface required&error=1")
     ok, msg = set_mtu(iface, int(mtu))
     if ok:
-        return redirect(f"/network?message={msg}")
-    return redirect(f"/network?message={msg}&error=1")
+        return _safe_redirect(f"/network?message={msg}")
+    return _safe_redirect(f"/network?message={msg}&error=1")
 
 
 @app.route("/network/toggle-iface", methods=["POST"])
@@ -1710,8 +1732,8 @@ def network_toggle_iface():
         return redirect("/network?message=Interface required&error=1")
     ok, msg = set_interface(iface, action)
     if ok:
-        return redirect(f"/network?message={msg}")
-    return redirect(f"/network?message={msg}&error=1")
+        return _safe_redirect(f"/network?message={msg}")
+    return _safe_redirect(f"/network?message={msg}&error=1")
 
 
 @app.route("/api/network/state")
@@ -1728,8 +1750,8 @@ def network_set_role():
         return redirect("/network?message=Interface required&error=1")
     ok, msg = set_role(iface, role, label)
     if ok:
-        return redirect(f"/network?message={msg}")
-    return redirect(f"/network?message={msg}&error=1")
+        return _safe_redirect(f"/network?message={msg}")
+    return _safe_redirect(f"/network?message={msg}&error=1")
 
 
 @app.route("/network/create-vlan", methods=["POST"])
@@ -1744,8 +1766,8 @@ def network_create_vlan():
     ok, msg = create_vlan(parent, vlan_id, ip_cidr, role, label)
     persist_vlans()
     if ok:
-        return redirect(f"/network?message={msg}")
-    return redirect(f"/network?message={msg}&error=1")
+        return _safe_redirect(f"/network?message={msg}")
+    return _safe_redirect(f"/network?message={msg}&error=1")
 
 
 @app.route("/network/delete-vlan", methods=["POST"])
@@ -1756,8 +1778,8 @@ def network_delete_vlan():
     ok, msg = delete_vlan(vlan_name)
     persist_vlans()
     if ok:
-        return redirect(f"/network?message={msg}")
-    return redirect(f"/network?message={msg}&error=1")
+        return _safe_redirect(f"/network?message={msg}")
+    return _safe_redirect(f"/network?message={msg}&error=1")
 
 
 def get_hostname_rules_data():
@@ -3516,32 +3538,32 @@ def dhcp_add_scope():
         set_setting("dhcp_enabled", True)
         write_dhcp_config()
         return redirect(f"/dhcp?message=Scope added")
-    return redirect(f"/dhcp?message={msg}&error=1")
+    return _safe_redirect(f"/dhcp?message={msg}&error=1")
 
 
 @app.route("/dhcp/delete-scope/<int:scope_id>", methods=["POST"])
 def dhcp_delete_scope(scope_id):
     ok, msg = delete_scope(scope_id)
-    return redirect(f"/dhcp?message={msg}")
+    return _safe_redirect(f"/dhcp?message={msg}")
 
 
 @app.route("/dhcp/toggle-scope/<int:scope_id>", methods=["POST"])
 def dhcp_toggle_scope(scope_id):
     ok, msg = toggle_scope(scope_id)
     write_dhcp_config()
-    return redirect(f"/dhcp?message={msg}")
+    return _safe_redirect(f"/dhcp?message={msg}")
 
 
 @app.route("/dhcp/refresh-leases", methods=["POST"])
 def dhcp_refresh_leases():
     ok, msg = sync_leases_to_db()
-    return redirect(f"/dhcp?message={msg}")
+    return _safe_redirect(f"/dhcp?message={msg}")
 
 
 @app.route("/dhcp/make-static/<int:lease_id>", methods=["POST"])
 def dhcp_make_static(lease_id):
     ok, msg = make_lease_static(lease_id)
-    return redirect(f"/dhcp?message={msg}")
+    return _safe_redirect(f"/dhcp?message={msg}")
 
 
 @app.route("/dhcp/add-static-lease", methods=["POST"])
@@ -3555,8 +3577,8 @@ def dhcp_add_static_lease():
     ok, msg = add_static_lease(scope_id=None, mac=mac, ip=ip, hostname=hostname, comment=comment)
     if ok:
         write_dhcp_config()
-        return redirect(f"/dhcp?message=Static lease added: {mac} → {ip}")
-    return redirect(f"/dhcp?message={msg}&error=1")
+        return _safe_redirect(f"/dhcp?message=Static lease added: {mac} → {ip}")
+    return _safe_redirect(f"/dhcp?message={msg}&error=1")
 
 
 @app.route("/dhcp/delete-static-lease/<int:lease_id>", methods=["POST"])
@@ -3564,14 +3586,14 @@ def dhcp_delete_static_lease(lease_id):
     from modules.dhcp import delete_static_lease
     ok, msg = delete_static_lease(lease_id)
     write_dhcp_config()
-    return redirect(f"/dhcp?message={msg}")
+    return _safe_redirect(f"/dhcp?message={msg}")
 
 
 @app.route("/dhcp/detect-active", methods=["POST"])
 def dhcp_detect_active():
     interface = request.form.get("interface", "eth0").strip()
     ok, msg = detect_active_dhcp(interface)
-    return redirect(f"/dhcp?message={msg}")
+    return _safe_redirect(f"/dhcp?message={msg}")
 
 
 @app.route("/dhcp/validate-config", methods=["POST"])
@@ -3596,8 +3618,8 @@ def dhcp_reload():
     if ok:
         from modules.dns_config import reload_dnsmasq
         ok2, msg2 = reload_dnsmasq()
-        return redirect(f"/dhcp?message={msg2}")
-    return redirect(f"/dhcp?message={msg}&error=1")
+        return _safe_redirect(f"/dhcp?message={msg2}")
+    return _safe_redirect(f"/dhcp?message={msg}&error=1")
 
 
 @app.route("/dhcp/add-option", methods=["POST"])
@@ -3613,15 +3635,15 @@ def dhcp_add_option():
                                   option_value=option_value, comment=comment)
     if ok:
         write_dhcp_config()
-        return redirect(f"/dhcp?message=DHCP option {option_code} added")
-    return redirect(f"/dhcp?message={result}&error=1")
+        return _safe_redirect(f"/dhcp?message=DHCP option {option_code} added")
+    return _safe_redirect(f"/dhcp?message={result}&error=1")
 
 
 @app.route("/dhcp/delete-option/<int:option_id>", methods=["POST"])
 def dhcp_delete_option(option_id):
     ok, msg = delete_dhcp_option(option_id)
     write_dhcp_config()
-    return redirect(f"/dhcp?message={msg}")
+    return _safe_redirect(f"/dhcp?message={msg}")
 
 
 @app.route("/network/multiwan/add", methods=["POST"])
@@ -3640,7 +3662,7 @@ def multiwan_add():
                      health_check_ip=health_check_ip, metric_base=metric_base)
     if is_ajax():
         return json_response({"ok": ok, "message": msg})
-    return redirect(f"/network?message={msg}" + ("" if ok else "&error=1"))
+    return _safe_redirect(f"/network?message={msg}" + ("" if ok else "&error=1"))
 
 
 @app.route("/network/multiwan/delete", methods=["POST"])
@@ -3649,7 +3671,7 @@ def multiwan_delete():
     ok, msg = mw_delete(iface_id)
     if is_ajax():
         return json_response({"ok": ok, "message": msg})
-    return redirect(f"/network?message={msg}" + ("" if ok else "&error=1"))
+    return _safe_redirect(f"/network?message={msg}" + ("" if ok else "&error=1"))
 
 
 @app.route("/network/multiwan/edit", methods=["POST"])
@@ -3667,7 +3689,7 @@ def multiwan_edit():
     ok, msg = mw_update(iface_id, **fields)
     if is_ajax():
         return json_response({"ok": ok, "message": msg})
-    return redirect(f"/network?message={msg}" + ("" if ok else "&error=1"))
+    return _safe_redirect(f"/network?message={msg}" + ("" if ok else "&error=1"))
 
 
 @app.route("/network/multiwan/toggle-iface", methods=["POST"])
@@ -3680,7 +3702,7 @@ def multiwan_toggle_iface():
                      "toggle", "", "enabled" if enabled else "disabled")
     if is_ajax():
         return json_response({"ok": ok, "message": msg or ("Enabled" if enabled else "Disabled")})
-    return redirect(f"/network?message={msg}")
+    return _safe_redirect(f"/network?message={msg}")
 
 
 @app.route("/network/multiwan/toggle-service", methods=["POST"])
@@ -3693,7 +3715,7 @@ def multiwan_toggle_service():
     msg = "Multi-WAN enabled" if new_val == "1" else "Multi-WAN disabled"
     if is_ajax():
         return json_response({"ok": True, "message": msg})
-    return redirect(f"/network?message={msg}")
+    return _safe_redirect(f"/network?message={msg}")
 
 
 @app.route("/network/multiwan/check-now", methods=["POST"])
@@ -3705,7 +3727,7 @@ def multiwan_check_now():
         msg = f"Error: {e}"
     if is_ajax():
         return json_response({"ok": True, "message": msg})
-    return redirect(f"/network?message={msg}")
+    return _safe_redirect(f"/network?message={msg}")
 
 
 @app.route("/network/multiwan/apply-routing", methods=["POST"])
@@ -3717,7 +3739,7 @@ def multiwan_apply_routing():
         msg = f"Error: {e}"
     if is_ajax():
         return json_response({"ok": True, "message": msg})
-    return redirect(f"/network?message={msg}")
+    return _safe_redirect(f"/network?message={msg}")
 
 
 @app.route("/network/multiwan/save-settings", methods=["POST"])

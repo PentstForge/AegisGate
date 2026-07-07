@@ -205,7 +205,7 @@
             <h4>&#x1F512; Access Control</h4>
             <div class="acl-toggle"><label for="acl-inet"><strong>&#x1F310; Full Internet Access</strong><br><span style="font-size:11px;color:var(--text-muted)">Route all traffic (0.0.0.0/0) through VPN</span></label>
             <label class="toggle-switch"><input type="checkbox" id="acl-inet" name="internet" value="1" onchange="toggleInetDeps()"><span class="toggle-slider"></span></label></div>
-            <div class="acl-toggle" id="acl-lan-row"><label for="acl-lan"><strong>&#x1F3E0; LAN Access</strong><br><span style="font-size:11px;color:var(--text-muted)">192.168.1.0/24, 10.0.0.0/24</span></label>
+            <div class="acl-toggle" id="acl-lan-row"><label for="acl-lan"><strong>&#x1F3E0; LAN Access</strong><br><span style="font-size:11px;color:var(--text-muted)">172.24.1.0/24, 10.0.0.0/24</span></label>
             <label class="toggle-switch"><input type="checkbox" id="acl-lan" name="lan" value="1"><span class="toggle-slider"></span></label></div>
             <div class="acl-toggle" id="acl-dmz-row"><label for="acl-dmz"><strong>&#x1F5A5; DMZ Server</strong><br><span style="font-size:11px;color:var(--text-muted)">Access the server only ({{ lan_ip }})</span></label>
             <label class="toggle-switch"><input type="checkbox" id="acl-dmz" name="dmz" value="1"><span class="toggle-slider"></span></label></div>
@@ -231,7 +231,7 @@
             <h4>Network Access</h4>
             <div class="acl-toggle"><label><strong>&#x1F310; Full Internet Access</strong><br><span style="font-size:11px;color:var(--text-muted)">All traffic routes through VPN (AllowedIPs: 0.0.0.0/0)</span></label>
             <label class="toggle-switch"><input type="checkbox" id="edit-inet" name="internet" value="1" onchange="toggleEditInetDeps()"><span class="toggle-slider"></span></label></div>
-            <div class="acl-toggle" id="edit-lan-row"><label><strong>&#x1F3E0; LAN Access</strong><br><span style="font-size:11px;color:var(--text-muted)">Access local network: 192.168.1.0/24</span></label>
+            <div class="acl-toggle" id="edit-lan-row"><label><strong>&#x1F3E0; LAN Access</strong><br><span style="font-size:11px;color:var(--text-muted)">Access local network: 172.24.1.0/24</span></label>
             <label class="toggle-switch"><input type="checkbox" id="edit-lan" name="lan" value="1"><span class="toggle-slider"></span></label></div>
             <div class="acl-toggle" id="edit-dmz-row"><label><strong>&#x1F5A5; DMZ Server</strong><br><span style="font-size:11px;color:var(--text-muted)">Access the server only ({{ lan_ip }})</span></label>
             <label class="toggle-switch"><input type="checkbox" id="edit-dmz" name="dmz" value="1"><span class="toggle-slider"></span></label></div>

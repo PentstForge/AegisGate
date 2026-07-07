@@ -50,7 +50,7 @@ PORT_PROTOCOL_MAP = {
     8080: "HTTP-Alt",
 }
 
-LAN_NETS = ["192.168.1.", "10.0.0."]
+LAN_NETS = ["172.24.1.", "10.0.0."]
 VPN_NET = "10.0.0."
 
 DB_CREATE = """

@@ -93,11 +93,11 @@
         <form method="POST" action="/dhcp/add-scope" class="form-grid">
           <div class="form-group"><label>Name</label><input type="text" name="name" placeholder="LAN DHCP" required></div>
           <div class="form-group"><label>Interface</label><input type="text" name="interface" placeholder="eth0" required></div>
-          <div class="form-group"><label>Subnet</label><input type="text" name="subnet" placeholder="192.168.1.0/24" required></div>
-          <div class="form-group"><label>Range Start</label><input type="text" name="range_start" placeholder="192.168.1.100"></div>
-          <div class="form-group"><label>Range End</label><input type="text" name="range_end" placeholder="192.168.1.250"></div>
-          <div class="form-group"><label>Router/Gateway</label><input type="text" name="router" placeholder="192.168.1.1"></div>
-          <div class="form-group"><label>DNS Servers</label><input type="text" name="dns_servers" placeholder="192.168.1.1"></div>
+          <div class="form-group"><label>Subnet</label><input type="text" name="subnet" placeholder="172.24.1.0/24" required></div>
+          <div class="form-group"><label>Range Start</label><input type="text" name="range_start" placeholder="172.24.1.100"></div>
+          <div class="form-group"><label>Range End</label><input type="text" name="range_end" placeholder="172.24.1.250"></div>
+          <div class="form-group"><label>Router/Gateway</label><input type="text" name="router" placeholder="172.24.1.1"></div>
+          <div class="form-group"><label>DNS Servers</label><input type="text" name="dns_servers" placeholder="172.24.1.1"></div>
           <div class="form-group"><label>Domain</label><input type="text" name="domain" value="lan"></div>
           <div class="form-group"><label>Lease Time (sec)</label><input type="number" name="lease_time" value="86400"></div>
           <div style="grid-column:1/-1;display:flex;gap:8px;margin-top:4px"><button type="submit" class="mod-action-btn primary">Add Scope</button><button type="button" class="mod-action-btn ghost" onclick="document.getElementById('add-scope-form').style.display='none'">Cancel</button></div>
@@ -168,7 +168,7 @@
       <div style="border:1px solid var(--border);border-radius:12px;padding:14px;background:var(--bg-tertiary);margin-bottom:12px">
         <form method="POST" action="/dhcp/add-static-lease" class="form-grid">
           <div class="form-group"><label>MAC Address</label><input type="text" name="mac" placeholder="AA:BB:CC:DD:EE:FF" required></div>
-          <div class="form-group"><label>IP Address</label><input type="text" name="ip" placeholder="192.168.1.50" required></div>
+          <div class="form-group"><label>IP Address</label><input type="text" name="ip" placeholder="172.24.1.50" required></div>
           <div class="form-group"><label>Hostname</label><input type="text" name="hostname" placeholder="my-device"></div>
           <div class="form-group"><label>Comment</label><input type="text" name="comment" placeholder="Optional"></div>
           <div style="grid-column:1/-1;display:flex;gap:8px;margin-top:4px"><button type="submit" class="mod-action-btn primary">Add</button><button type="button" class="mod-action-btn ghost" onclick="document.getElementById('add-static-form').style.display='none'">Cancel</button></div>
@@ -254,10 +254,10 @@
         <p class="mini-note" style="margin:4px 0 8px">Check that range, gateway, and subnet are valid and non-overlapping.</p>
         <form method="POST" action="/dhcp/validate-config" class="form-grid" onsubmit="return validateConfig(this)">
           <div class="form-group"><label>Interface</label><input type="text" name="interface" placeholder="eth0"></div>
-          <div class="form-group"><label>Subnet</label><input type="text" name="subnet" placeholder="192.168.1.0/24"></div>
-          <div class="form-group"><label>Range Start</label><input type="text" name="range_start" placeholder="192.168.1.100"></div>
-          <div class="form-group"><label>Range End</label><input type="text" name="range_end" placeholder="192.168.1.250"></div>
-          <div class="form-group"><label>Router</label><input type="text" name="router" placeholder="192.168.1.1"></div>
+          <div class="form-group"><label>Subnet</label><input type="text" name="subnet" placeholder="172.24.1.0/24"></div>
+          <div class="form-group"><label>Range Start</label><input type="text" name="range_start" placeholder="172.24.1.100"></div>
+          <div class="form-group"><label>Range End</label><input type="text" name="range_end" placeholder="172.24.1.250"></div>
+          <div class="form-group"><label>Router</label><input type="text" name="router" placeholder="172.24.1.1"></div>
           <div style="grid-column:1/-1"><button type="submit" class="mod-action-btn ghost">Validate Config</button></div>
         </form>
       </div>

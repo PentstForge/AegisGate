@@ -7,7 +7,7 @@ import copy
 
 NFT = "/usr/sbin/nft"
 NFT_CONF = "/etc/nftables.conf"
-DMZ_IP = "192.168.1.204"
+DMZ_IP = "172.24.1.204"
 VPN_NET = "10.0.0.0/24"
 
 
@@ -31,18 +31,18 @@ def _get_wan_ip():
                         return a.get("local", "")
     except Exception:
         pass
-    return "203.0.113.10"
+    return "31.172.140.234"
 
 
-LAN_NET = "192.168.1.0/24"
+LAN_NET = "172.24.1.0/24"
 
 
 def _run_nft(args, timeout=10):
     try:
         r = subprocess.run([NFT] + args, capture_output=True, text=True, timeout=timeout)
-        return r.returncode == 0, r.stdout, r.stderr
+        return r.returncode == 0, r.stdout.strip(), r.stderr.strip()
     except Exception as e:
-        return False, "", str(e)
+        return False, "", str(e).strip()
 
 
 def get_nft_tables():
@@ -284,14 +284,14 @@ def add_dnat_rule(proto, dport, target_ip, target_port=None, iface=None, dest_ip
     rule_parts.append(port_spec)
     rule_parts.append(f'dnat to {target_ip}:{target_port}')
     rule_str = " ".join(rule_parts)
-    ok, out, err = _run_nft(["add", "rule", "ip", "nat", "prerouting"] + rule_str.split())
+    ok, out, err = _run_nft(["add", "rule", "ip", "nat", "PREROUTING"] + rule_str.split())
     if ok:
         _save_dnat_to_config()
         if iface in (WAN_IFACE, LAN_IFACE):
             vpn_ifaces = _get_vpn_ifaces()
             for vpn_if in vpn_ifaces:
                 vpn_parts = ['ip', 'daddr', dest_ip, 'iifname', vpn_if, proto, 'dport', str(dport), 'dnat', 'to', f'{target_ip}:{target_port}']
-                vok, _, _ = _run_nft(["add", "rule", "ip", "nat", "prerouting"] + vpn_parts)
+                vok, _, _ = _run_nft(["add", "rule", "ip", "nat", "PREROUTING"] + vpn_parts)
                 if vok:
                     _save_dnat_to_config()
     return ok, f"DNAT rule added: {proto}/{dport} -> {target_ip}:{target_port}" if ok else f"Failed: {err}"
@@ -299,13 +299,13 @@ def add_dnat_rule(proto, dport, target_ip, target_port=None, iface=None, dest_ip
 
 def remove_dnat_rule(handle):
     rule_info = None
-    ok_list, out_list, _ = _run_nft(["-a", "list", "chain", "ip", "nat", "prerouting"])
+    ok_list, out_list, _ = _run_nft(["-a", "list", "chain", "ip", "nat", "PREROUTING"])
     if ok_list:
         for line in out_list.splitlines():
             if f"handle {handle}" in line and "dnat to" in line:
                 rule_info = line.strip()
                 break
-    ok, _, err = _run_nft(["delete", "rule", "ip", "nat", "prerouting", "handle", handle])
+    ok, _, err = _run_nft(["delete", "rule", "ip", "nat", "PREROUTING", "handle", handle])
     if ok:
         if rule_info:
             parts = rule_info.split()
@@ -319,7 +319,7 @@ def remove_dnat_rule(handle):
                     target = parts[i + 1]
             if proto and dport:
                 vpn_ifaces = _get_vpn_ifaces()
-                vok, vout, _ = _run_nft(["-a", "list", "chain", "ip", "nat", "prerouting"])
+                vok, vout, _ = _run_nft(["-a", "list", "chain", "ip", "nat", "PREROUTING"])
                 if vok:
                     for vline in vout.splitlines():
                         vline = vline.strip()
@@ -331,13 +331,13 @@ def remove_dnat_rule(handle):
                         )
                         if has_vpn and dport_match and f"dnat to {target}" in vline:
                             vhandle = vline.split("handle")[-1].strip()
-                            _run_nft(["delete", "rule", "ip", "nat", "prerouting", "handle", vhandle])
+                            _run_nft(["delete", "rule", "ip", "nat", "PREROUTING", "handle", vhandle])
         _save_dnat_to_config()
     return ok, f"DNAT rule removed" if ok else f"Failed: {err}"
 
 
 def update_dnat_rule(handle, proto, dport, target_ip, target_port=None, iface=None, dest_ip=None):
-    ok, _, _ = _run_nft(["delete", "rule", "ip", "nat", "prerouting", "handle", handle])
+    ok, _, _ = _run_nft(["delete", "rule", "ip", "nat", "PREROUTING", "handle", handle])
     if not ok:
         return False, "Failed to remove old DNAT rule"
     ok2, msg = add_dnat_rule(proto, dport, target_ip, target_port, iface, dest_ip)
@@ -349,21 +349,21 @@ def update_dnat_rule(handle, proto, dport, target_ip, target_port=None, iface=No
 
 def add_masquerade_rule(source_net, iface):
     rule_str = f'ip saddr {source_net} oifname "{iface}" masquerade'
-    ok, out, err = _run_nft(["add", "rule", "ip", "nat", "postrouting"] + rule_str.split())
+    ok, out, err = _run_nft(["add", "rule", "ip", "nat", "POSTROUTING"] + rule_str.split())
     if ok:
         _save_nat_to_config()
     return ok, f"Masquerade rule added: {source_net} -> {iface}" if ok else f"Failed: {err}"
 
 
 def remove_masquerade_rule(handle):
-    ok, _, err = _run_nft(["delete", "rule", "ip", "nat", "postrouting", "handle", handle])
+    ok, _, err = _run_nft(["delete", "rule", "ip", "nat", "POSTROUTING", "handle", handle])
     if ok:
         _save_nat_to_config()
     return ok, f"Masquerade rule removed" if ok else f"Failed: {err}"
 
 
 def update_masquerade_rule(handle, source_net, iface):
-    ok, _, _ = _run_nft(["delete", "rule", "ip", "nat", "postrouting", "handle", handle])
+    ok, _, _ = _run_nft(["delete", "rule", "ip", "nat", "POSTROUTING", "handle", handle])
     if not ok:
         return False, "Failed to remove old masquerade rule"
     ok2, msg = add_masquerade_rule(source_net, iface)

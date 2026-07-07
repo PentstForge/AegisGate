@@ -95,7 +95,7 @@ table inet filter {
         type ipv4_addr
         flags interval
         auto-merge
-        elements = { 203.0.113.0/24, 192.168.1.0/24, 10.0.0.0/24 }
+        elements = { 31.172.140.0/24, 172.24.1.0/24, 10.0.0.0/24 }
     }
 
     set ipbl_ipv4 {
@@ -120,14 +120,14 @@ table inet filter {
         type ipv4_addr
         flags interval
         auto-merge
-        elements = { 10.0.0.0/8, 100.64.0.0/10, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16, 192.0.0.0/24, 192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24, 224.0.0.0/4, 240.0.0.0/4 }
+        elements = { 10.0.0.0/8, 100.64.0.0/10, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16, 192.0.0.0/24, 192.0.2.0/24, 198.51.100.0/24, 31.172.140.0/24, 224.0.0.0/4, 240.0.0.0/4 }
     }
 
     chain input {
         type filter hook input priority filter; policy drop;
         ct state established,related accept
         iifname "lo" accept
-        ip saddr 192.168.1.0/24 ip daddr 192.168.1.1 tcp dport 8080 accept
+        ip saddr 172.24.1.0/24 ip daddr 172.24.1.1 tcp dport 8080 accept
         ip saddr @lan_trusted accept
         udp sport 68 udp dport 67 accept
         ip saddr @ipbl_ipv4 ct state new log prefix "DROP_IPBL_SADDR_INPUT: " drop
@@ -136,7 +136,7 @@ table inet filter {
         ip6 saddr @blacklist_ipv6 ct state new log prefix "DROP_CROWDSEC_INPUT6: " drop
         ip saddr @crowdsec-blacklists ct state new log prefix "DROP_CROWDSEC_INPUT: " drop
         ip6 saddr @crowdsec6-blacklists ct state new log prefix "DROP_CROWDSEC_INPUT6: " drop
-        ip daddr 192.168.1.1 tcp dport 8080 accept
+        ip daddr 172.24.1.1 tcp dport 8080 accept
         ip saddr @allowlist_ipv4 accept
         ip6 saddr @allowlist_ipv6 accept
         ip saddr @lan_trusted accept

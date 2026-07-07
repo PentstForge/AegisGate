@@ -451,7 +451,7 @@
           {% endfor %}
         </select>
       </div>
-      <div class="mod-form-row"><label>Gateway</label><input type="text" name="gateway" placeholder="203.0.113.254" required></div>
+      <div class="mod-form-row"><label>Gateway</label><input type="text" name="gateway" placeholder="31.172.140.254" required></div>
       <div class="mod-form-row"><label>Role</label>
         <select name="role">
           <option value="active">Active (load balanced)</option>
@@ -537,7 +537,7 @@
     <h3>&#x1F6E0; Add Static Route</h3>
     <form method="POST" action="/network/add-route">
       <div class="mod-form-row"><label>Destination (e.g. 192.168.100.0/24 or default)</label><input type="text" name="dst" placeholder="192.168.100.0/24" required></div>
-      <div class="mod-form-row"><label>Via (Gateway)</label><input type="text" name="via" placeholder="192.168.1.1"></div>
+      <div class="mod-form-row"><label>Via (Gateway)</label><input type="text" name="via" placeholder="172.24.1.1"></div>
       <div class="mod-form-row"><label>Interface</label>
         <select name="dev">
           {% for iface in net.interfaces %}

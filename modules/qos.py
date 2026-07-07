@@ -173,7 +173,7 @@ PRIORITY_CLASSES = {
     "streaming": {"label": "Streaming", "ports": "1935,1936,8000-8010,554", "networks": "", "protocols": "", "icon": "\U0001f3ac", "editable": True},
     "bulk": {"label": "Bulk / Downloads", "ports": "20-21,69,119,445,873,3389", "networks": "", "protocols": "", "icon": "\U0001f4e5", "editable": True},
     "vpn": {"label": "VPN Traffic", "ports": "51820", "networks": "10.0.0.0/24", "protocols": "udp", "icon": "\U0001f512", "editable": True},
-    "lan_mgmt": {"label": "LAN Management", "ports": "22,8080,8443", "networks": "192.168.1.0/24", "protocols": "", "icon": "\U0001f527", "editable": True},
+    "lan_mgmt": {"label": "LAN Management", "ports": "22,8080,8443", "networks": "172.24.1.0/24", "protocols": "", "icon": "\U0001f527", "editable": True},
 }
 
 DSCP_MAP = {

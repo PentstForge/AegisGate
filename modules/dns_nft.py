@@ -97,7 +97,7 @@ def toggle_dns_redirect(enabled=True):
         if not wan or not lan_ifaces:
             return False, "No WAN or LAN interface configured"
         info = dns_status()
-        gateway_ip = info.get("listen_addr", info.get("listen_address", "192.168.1.1"))
+        gateway_ip = info.get("listen_addr", info.get("listen_address", "172.24.1.1"))
         return setup_dns_redirect(wan["name"], lan_ifaces, gateway_ip=gateway_ip)
     elif not enabled and status.get("active"):
         return remove_dns_redirect()

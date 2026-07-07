@@ -398,7 +398,7 @@ def restore_dns_dhcp():
             else:
                 log(f"dnsmasq start failed: {err[:200]}")
 
-        gateway_ip = lan_ip or dns_settings.get("dns_listen_addr", "192.168.1.1")
+        gateway_ip = lan_ip or dns_settings.get("dns_listen_addr", "172.24.1.1")
         lan_ifaces = [lan_if] if lan_if else ["eth1"]
         ok, out, err = run([sys.executable, "-c",
             f"from modules.dns_nft import setup_dns_redirect; "

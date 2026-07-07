@@ -63,7 +63,7 @@ def _get_preset_networks():
     if PRESET_NETWORKS is None:
         PRESET_NETWORKS = {
             "Internet (Full Access)": "0.0.0.0/0",
-            "LAN": "192.168.1.0/24",
+            "LAN": "172.24.1.0/24",
             "Gateway / VPN Network": "10.0.0.0/24",
             "DMZ Server": _get_dmz_ip() + "/32",
             "DNS Servers": "1.1.1.1/32,8.8.8.8/32",
@@ -715,9 +715,9 @@ def _get_dmz_ip():
     try:
         with open("/opt/nft-dashboard/data/config.json") as f:
             cfg = json.load(f)
-        return cfg.get("lan_ip", "192.168.1.1")
+        return cfg.get("lan_ip", "172.24.1.1")
     except Exception:
-        return "192.168.1.1"
+        return "172.24.1.1"
 
 
 def _get_local_networks():
@@ -745,7 +745,7 @@ def _get_local_networks():
             except ValueError:
                 continue
     except Exception:
-        nets = ["192.168.1.0/24"]
+        nets = ["172.24.1.0/24"]
     return list(dict.fromkeys(nets))
 
 
@@ -829,7 +829,7 @@ def get_events(limit=50):
 def _aip_in_lan(aip):
     try:
         net = ipaddress.ip_network(aip, strict=False)
-        return net == ipaddress.ip_network("192.168.1.0/24") or net == ipaddress.ip_network("10.0.0.0/24")
+        return net == ipaddress.ip_network("172.24.1.0/24") or net == ipaddress.ip_network("10.0.0.0/24")
     except ValueError:
         return False
 
@@ -932,7 +932,7 @@ def _calc_acl(allowed_ips):
     parts = [aip.strip() for aip in allowed_ips.split(",") if aip.strip()]
     is_internet = "0.0.0.0/0" in parts
     is_lan = any(p in local_nets for p in parts) or any(p.startswith("10.0.0.") and "/24" in p for p in parts)
-    is_dmz = any(p == f"{_get_dmz_ip()}/32" or p == "192.168.1.204/32" for p in parts)
+    is_dmz = any(p == f"{_get_dmz_ip()}/32" or p == "172.24.1.204/32" for p in parts)
     acls = {
         "internet": is_internet,
         "lan": is_lan,
@@ -943,7 +943,7 @@ def _calc_acl(allowed_ips):
     known.update(local_nets)
     if is_dmz:
         known.add(f"{_get_dmz_ip()}/32")
-        known.add("192.168.1.204/32")
+        known.add("172.24.1.204/32")
     for aip in parts:
         if aip not in known and "/" in aip:
             acls["custom_networks"].append(aip)

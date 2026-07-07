@@ -193,7 +193,7 @@ def apply_policy_nft():
         add_event("service_blocks_applied", "info", "dns_service_nft", "No client policies active")
         return True, "No client policies active", []
 
-    GATEWAY_V4 = "192.168.1.1"
+    GATEWAY_V4 = "172.24.1.1"
     VPN_GW_V4 = "10.0.0.1"
 
     forward_rules = []
