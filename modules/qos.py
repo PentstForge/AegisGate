@@ -3,6 +3,7 @@ import os
 import json
 import subprocess
 import shutil
+import copy
 NFT = "/usr/sbin/nft"
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
@@ -644,8 +645,10 @@ def apply_profile(profile_id):
                 return False, f"Failed to apply qdisc on {iface}. Check tc support."
     except Exception as e:
         return False, f"Error applying profile: {e}"
-    _apply_dscp_marks(priorities, wan_iface, lan_iface)
-    _apply_manual_rules(qos_ifaces)
+    if not _apply_dscp_marks(priorities, wan_iface, lan_iface):
+        return False, "Failed to apply QoS DSCP nft rules"
+    if not _apply_manual_rules(qos_ifaces):
+        return False, "Failed to apply one or more QoS traffic filters"
     data["active_profile"] = profile_id
     _save(data)
     _update_qos_script(data)
@@ -830,6 +833,7 @@ def _apply_hfsc(iface, bandwidth_mbit, profile):
 
 def update_profile(profile_id, updates):
     data = _load()
+    previous_data = copy.deepcopy(data)
     profiles = data.get("profiles", {})
     if profile_id not in profiles and profile_id not in DEFAULT_PROFILES:
         return False, f"Unknown profile: {profile_id}"
@@ -873,35 +877,65 @@ def update_profile(profile_id, updates):
     data["profiles"] = profiles
     _save(data)
     if data.get("active_profile") == profile_id and data.get("enabled", True):
-        apply_profile(profile_id)
+        ok, message = apply_profile(profile_id)
+        if not ok:
+            _save(previous_data)
+            rollback_ok, rollback_message = apply_profile(previous_data.get("active_profile", "gaming"))
+            suffix = "" if rollback_ok else f"; rollback failed: {rollback_message}"
+            return False, f"Profile update failed: {message}{suffix}"
     return True, f"Profile '{profile.get('name', profile_id)}' updated"
 
 
 def toggle_qos(enabled):
     data = _load()
+    previous = bool(data.get("enabled", True))
     data["enabled"] = enabled
     _save(data)
     if enabled:
         profile_id = data.get("active_profile", "gaming")
         ok, msg = apply_profile(profile_id)
+        if not ok:
+            data["enabled"] = previous
+            _save(data)
+            _update_qos_script(data)
+            return False, f"QoS enable failed: {msg}"
         _update_qos_script(data)
         return True, f"QoS enabled. {msg}"
     else:
-        wan, lan, vpn = _detect_ifaces()
-        qos_ifaces = _get_qos_ifaces(data=data)
-        for iface in qos_ifaces:
-            iface = _val_iface(iface)
-            _run(["tc", "qdisc", "del", "dev", iface, "root"], timeout=5)
-            _run(["tc", "qdisc", "add", "dev", iface, "root", "fq_codel"])
-        _run([NFT, "delete", "table", "inet", NFT_QOS_TABLE], timeout=5)
-        _remove_qos_jumps()
+        ok, message = _disable_qos_runtime(data)
+        if not ok:
+            data["enabled"] = previous
+            _save(data)
+            return False, f"QoS disable failed: {message}"
+        data["enabled"] = False
+        _save(data)
         _update_qos_script(data)
         return True, "QoS disabled. Default fq_codel applied."
+
+
+def _disable_qos_runtime(data):
+    wan, lan, vpn_ifaces = _detect_ifaces()
+    for iface in [wan, lan] + vpn_ifaces:
+        iface = _val_iface(iface)
+        if not os.path.exists(f"/sys/class/net/{iface}"):
+            continue
+        _run(["tc", "qdisc", "del", "dev", iface, "root"], timeout=5)
+        ok, _, error = _run(["tc", "qdisc", "add", "dev", iface, "root", "fq_codel"])
+        if not ok:
+            return False, f"fq_codel failed on {iface}: {error}"
+    table_exists, _, _ = _run([NFT, "list", "table", "inet", NFT_QOS_TABLE], timeout=5)
+    if table_exists:
+        ok, _, error = _run([NFT, "delete", "table", "inet", NFT_QOS_TABLE], timeout=5)
+        if not ok:
+            return False, f"QoS nft cleanup failed: {error}"
+    _remove_qos_jumps()
+    return True, "QoS runtime state removed"
 
 
 def add_manual_rule(rule_type, match_value, bandwidth_kbit, priority, comment=""):
     data = _load()
     rules = data.get("manual_rules", [])
+    previous = [dict(item) for item in rules]
     rule = {
         "id": f"rule_{len(rules) + 1}_{int(__import__('time').time())}",
         "type": rule_type,
@@ -914,28 +948,42 @@ def add_manual_rule(rule_type, match_value, bandwidth_kbit, priority, comment=""
     rules.append(rule)
     data["manual_rules"] = rules
     _save(data)
-    _apply_manual_rules(_get_qos_ifaces(data=data))
+    if not _apply_manual_rules(_get_qos_ifaces(data=data)):
+        data["manual_rules"] = previous
+        _save(data)
+        _apply_manual_rules(_get_qos_ifaces(data=data))
+        return False, "Failed to apply rule; previous rules restored"
     return True, f"Rule added: {rule_type} {match_value}"
 
 
 def remove_manual_rule(rule_id):
     data = _load()
     rules = data.get("manual_rules", [])
+    previous = [dict(item) for item in rules]
     data["manual_rules"] = [r for r in rules if r.get("id") != rule_id]
     _save(data)
-    _apply_manual_rules(_get_qos_ifaces(data=data))
+    if not _apply_manual_rules(_get_qos_ifaces(data=data)):
+        data["manual_rules"] = previous
+        _save(data)
+        _apply_manual_rules(_get_qos_ifaces(data=data))
+        return False, "Failed to remove rule; previous rules restored"
     return True, f"Rule removed"
 
 
 def toggle_manual_rule(rule_id, enabled):
     data = _load()
     rules = data.get("manual_rules", [])
+    previous = [dict(item) for item in rules]
     for r in rules:
         if r.get("id") == rule_id:
             r["enabled"] = enabled
     data["manual_rules"] = rules
     _save(data)
-    _apply_manual_rules(_get_qos_ifaces(data=data))
+    if not _apply_manual_rules(_get_qos_ifaces(data=data)):
+        data["manual_rules"] = previous
+        _save(data)
+        _apply_manual_rules(_get_qos_ifaces(data=data))
+        return False, "Failed to update rule; previous rules restored"
     return True, f"Rule {'enabled' if enabled else 'disabled'}"
 
 
@@ -953,7 +1001,7 @@ def _apply_dscp_marks(priorities, wan, lan):
     _remove_qos_jumps()
     has_marks = any(v != "normal" for v in priorities.values()) if priorities else False
     if not has_marks:
-        return
+        return True
     data = _load()
     profile = data.get("profiles", {}).get(data.get("active_profile", "gaming"), {})
     lines = [
@@ -985,6 +1033,8 @@ def _apply_dscp_marks(priorities, wan, lan):
     ok, _, err = _run_nft_stdin(ruleset)
     if not ok:
         _run([NFT, "delete", "table", "inet", NFT_QOS_TABLE], timeout=5)
+        return False
+    return True
 
 
 def _remove_qos_jumps():
@@ -1014,6 +1064,7 @@ def _apply_manual_rules(qos_ifaces=None):
     if qos_ifaces is None:
         qos_ifaces = _get_qos_ifaces(data=data)
     shaping_ifaces = [i for i in qos_ifaces if i != wan]
+    success = True
     for iface in all_ifaces:
         if iface and iface not in shaping_ifaces:
             _run(["tc", "filter", "del", "dev", iface, "parent", "1:"], timeout=5)
@@ -1021,7 +1072,7 @@ def _apply_manual_rules(qos_ifaces=None):
         iface = _val_iface(iface)
         _run(["tc", "filter", "del", "dev", iface, "parent", "1:"], timeout=5)
     if not rules:
-        return
+        return True
     for idx, r in enumerate(rules):
         rtype = r.get("type", "")
         match_val = r.get("match", "").strip()
@@ -1038,10 +1089,11 @@ def _apply_manual_rules(qos_ifaces=None):
                     port_num = int(port_str)
                     if not (0 <= port_num <= 65535):
                         continue
-                    _run(["tc", "filter", "add", "dev", iface, "parent", "1:", "protocol", "ip",
-                          "prio", str(prio), "u32", "match", "ip", "dport", str(port_num),
-                          "0xffff", "action", "police", "rate", f"{bw}kbit", "burst", f"{burst}kbit",
-                          "conform-exceed", "pass/continue"], timeout=5)
+                    ok, _, _ = _run(["tc", "filter", "add", "dev", iface, "parent", "1:", "protocol", "ip",
+                                     "prio", str(prio), "u32", "match", "ip", "dport", str(port_num),
+                                     "0xffff", "action", "police", "rate", f"{bw}kbit", "burst", f"{burst}kbit",
+                                     "conform-exceed", "pass/continue"], timeout=5)
+                    success = success and ok
                 except (ValueError, IndexError):
                     continue
             elif rtype == "ip":
@@ -1049,10 +1101,11 @@ def _apply_manual_rules(qos_ifaces=None):
                 try:
                     ipaddress.ip_address(match_val.split("/")[0])
                     dst = match_val if "/" in match_val else f"{match_val}/32"
-                    _run(["tc", "filter", "add", "dev", iface, "parent", "1:", "protocol", "ip",
-                          "prio", str(prio), "u32", "match", "ip", "dst", dst,
-                          "action", "police", "rate", f"{bw}kbit", "burst", f"{burst}kbit",
-                          "conform-exceed", "pass/continue"], timeout=5)
+                    ok, _, _ = _run(["tc", "filter", "add", "dev", iface, "parent", "1:", "protocol", "ip",
+                                     "prio", str(prio), "u32", "match", "ip", "dst", dst,
+                                     "action", "police", "rate", f"{bw}kbit", "burst", f"{burst}kbit",
+                                     "conform-exceed", "pass/continue"], timeout=5)
+                    success = success and ok
                 except (ValueError, TypeError):
                     continue
             elif rtype == "protocol":
@@ -1060,15 +1113,39 @@ def _apply_manual_rules(qos_ifaces=None):
                 proto_num = proto_map.get(match_val.lower(), "")
                 if not proto_num or not proto_num.isdigit():
                     continue
-                _run(["tc", "filter", "add", "dev", iface, "parent", "1:", "protocol", "ip",
-                      "prio", str(prio), "u32", "match", "ip", "protocol", proto_num,
-                      "0xff", "action", "police", "rate", f"{bw}kbit", "burst", f"{burst}kbit",
-                      "conform-exceed", "pass/continue"], timeout=5)
+                ok, _, _ = _run(["tc", "filter", "add", "dev", iface, "parent", "1:", "protocol", "ip",
+                                 "prio", str(prio), "u32", "match", "ip", "protocol", proto_num,
+                                 "0xff", "action", "police", "rate", f"{bw}kbit", "burst", f"{burst}kbit",
+                                 "conform-exceed", "pass/continue"], timeout=5)
+                success = success and ok
+    return success
 
 
 def _update_qos_script(data):
     script_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts")
     script_path = os.path.join(script_dir, "qos-setup.sh")
+    bootstrap = """#!/usr/bin/env bash
+set -euo pipefail
+APP_DIR="${AEGIS_APP_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+cd "$APP_DIR"
+exec /usr/bin/python3 - <<'PY'
+from modules.qos import _load, apply_profile
+
+data = _load()
+if not data.get("enabled", True):
+    from modules.qos import _disable_qos_runtime
+    ok, message = _disable_qos_runtime(data)
+    print(message)
+    raise SystemExit(0 if ok else 1)
+ok, message = apply_profile(data.get("active_profile", "gaming"))
+print(message)
+raise SystemExit(0 if ok else 1)
+PY
+"""
+    with open(script_path, "w") as f:
+        f.write(bootstrap)
+    os.chmod(script_path, 0o755)
+    return
     if not data.get("enabled", True):
         with open(script_path, "w") as f:
             f.write("#!/bin/bash\n# QoS disabled\n")
@@ -1205,17 +1282,23 @@ def _update_qos_script(data):
                 proto_num = proto_map.get(match_val.lower(), match_val)
                 lines.append(f"tc filter add dev {iface} parent 1: protocol ip prio {prio} u32 match ip protocol {proto_num} 0xff action police rate {bw}kbit burst {burst}kbit conform-exceed pass/continue 2>/dev/null")
     with open(script_path, "w") as f:
-        f.write("\n".join(lines) + "\n")
+        f.write("\n".join(lines + ["exit 0"]) + "\n")
     _run(["chmod", "+x", script_path])
 
 
 def reset_profile(profile_id):
     if profile_id in DEFAULT_PROFILES:
         data = _load()
-        data["profiles"][profile_id] = dict(DEFAULT_PROFILES[profile_id])
+        previous_data = copy.deepcopy(data)
+        data["profiles"][profile_id] = copy.deepcopy(DEFAULT_PROFILES[profile_id])
         _save(data)
         if data.get("active_profile") == profile_id and data.get("enabled", True):
-            apply_profile(profile_id)
+            ok, message = apply_profile(profile_id)
+            if not ok:
+                _save(previous_data)
+                rollback_ok, rollback_message = apply_profile(previous_data.get("active_profile", "gaming"))
+                suffix = "" if rollback_ok else f"; rollback failed: {rollback_message}"
+                return False, f"Profile reset failed: {message}{suffix}"
         return True, f"Profile '{profile_id}' reset to defaults"
     return False, f"Cannot reset: unknown profile"
 

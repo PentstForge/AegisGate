@@ -4,6 +4,8 @@ import sys
 import json
 import time
 import threading
+import sqlite3
+import tempfile
 from datetime import datetime, timedelta
 from collections import Counter
 from flask import Flask, render_template, request, redirect, send_from_directory, make_response, url_for, jsonify
@@ -109,13 +111,11 @@ try:
 except Exception:
     pass
 
-from modules.wg_manager import _load_state, _write_server_config, _sync_all_peers, _apply_all_firewall_rules, get_server_status, _open_wg_port, _save_state as _wg_save_state
+from modules.wg_manager import _load_state, _write_server_config, _sync_all_peers, _apply_all_firewall_rules, get_server_status, _open_wg_port
 try:
     _wg_state = _load_state()
     if _wg_state.get("server"):
         is_running = get_server_status().get("running", False)
-        _wg_state["server"]["running"] = is_running
-        _wg_save_state(_wg_state)
         if is_running:
             _write_server_config(_wg_state["server"])
             _sync_all_peers()
@@ -1927,25 +1927,97 @@ def dns_page():
                                tracked_clients=get_tracked_clients_data())
 
 
+def _run_dhcp_change(operation, enable_dhcp=False, extra_tables=(), full_dns=False):
+    from modules.dns_config import dns_config_lock, reload_dnsmasq
+    from modules.dns_db import get_setting, set_setting
+
+    db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "dns.db")
+    backup_fd, backup_path = tempfile.mkstemp(prefix="dhcp-transaction-", suffix=".db", dir="/tmp")
+    os.close(backup_fd)
+    with dns_config_lock():
+        def restore_snapshot():
+            tables = ("dhcp_scopes", "dhcp_leases", "dhcp_static_leases", "dhcp_options", "dhcp_settings", "dhcp_events") + tuple(extra_tables)
+            with sqlite3.connect(db_path, timeout=30) as destination:
+                destination.execute("ATTACH DATABASE ? AS snapshot", (backup_path,))
+                destination.execute("BEGIN IMMEDIATE")
+                table_columns = {}
+                for table in tables:
+                    columns = [row[1] for row in destination.execute(f"PRAGMA main.table_info({table})")]
+                    table_columns[table] = ", ".join(columns)
+                for table in reversed(tables):
+                    destination.execute(f"DELETE FROM main.{table}")
+                for table in tables:
+                    column_list = table_columns[table]
+                    destination.execute(
+                        f"INSERT INTO main.{table} ({column_list}) SELECT {column_list} FROM snapshot.{table}"
+                    )
+                destination.execute("DELETE FROM main.dns_settings WHERE key='dhcp_enabled'")
+                destination.execute(
+                    "INSERT INTO main.dns_settings SELECT * FROM snapshot.dns_settings WHERE key='dhcp_enabled'"
+                )
+                destination.commit()
+                destination.execute("DETACH DATABASE snapshot")
+
+        try:
+            with sqlite3.connect(db_path, timeout=30) as source, sqlite3.connect(backup_path) as backup:
+                source.backup(backup)
+            ok, message = operation()
+            if not ok:
+                restore_snapshot()
+                return ok, message
+            if enable_dhcp:
+                set_setting("dhcp_enabled", True)
+            if full_dns:
+                from modules.dns import _apply_config_locked
+                ok, config_message = _apply_config_locked()
+            else:
+                ok, config_message = write_dhcp_config(lock=False)
+                if ok and get_setting("dns_enabled", True):
+                    ok, config_message = reload_dnsmasq()
+            if ok:
+                return True, message
+
+            restore_snapshot()
+            if full_dns:
+                from modules.dns import _apply_config_locked
+                _apply_config_locked()
+            else:
+                write_dhcp_config(lock=False)
+                if get_setting("dns_enabled", True):
+                    reload_dnsmasq()
+            return False, f"{message}; rolled back: {config_message}"
+        except Exception:
+            restore_snapshot()
+            raise
+        finally:
+            try:
+                os.unlink(backup_path)
+            except OSError:
+                pass
+
+
 @app.route("/dns/dhcp/toggle", methods=["POST"])
 def dns_dhcp_toggle():
     enabled = request.form.get("enabled", "").lower() in ("1", "true", "on", "yes")
-    from modules.dns_db import set_setting
+    from modules.dns_db import get_setting, set_setting
+    from modules.dns_config import reload_dnsmasq
+    from modules.dhcp import setup_dhcp_nft_rules, remove_dhcp_nft_rules
+    previous = bool(get_setting("dhcp_enabled", False))
     set_setting("dhcp_enabled", enabled)
-    if enabled:
-        ok, msg = write_dhcp_config()
-        from modules.dns_config import reload_dnsmasq
+    ok, msg = write_dhcp_config()
+    if ok:
+        ok, msg = reload_dnsmasq()
+    if ok:
+        ok, msg = setup_dhcp_nft_rules() if enabled else remove_dhcp_nft_rules()
+    if not ok:
+        set_setting("dhcp_enabled", previous)
+        write_dhcp_config()
         reload_dnsmasq()
-        from modules.dhcp import setup_dhcp_nft_rules
-        setup_dhcp_nft_rules()
-        return json_response({"ok": True, "message": "DHCP enabled"})
-    else:
-        ok, msg = write_dhcp_config()
-        from modules.dns_config import reload_dnsmasq
-        reload_dnsmasq()
-        from modules.dhcp import remove_dhcp_nft_rules
-        remove_dhcp_nft_rules()
-        return json_response({"ok": True, "message": "DHCP disabled"})
+        setup_dhcp_nft_rules() if previous else remove_dhcp_nft_rules()
+        response = json_response({"ok": False, "error": msg})
+        response.status_code = 500
+        return response
+    return json_response({"ok": True, "message": f"DHCP {'enabled' if enabled else 'disabled'}"})
 
 
 @app.route("/dns/dhcp/add-scope", methods=["POST"])
@@ -1959,25 +2031,21 @@ def dns_dhcp_add_scope():
     dns_servers = request.form.get("dns_servers", "").strip() or None
     domain = request.form.get("domain", "lan").strip()
     lease_time = int(request.form.get("lease_time", 86400))
-    ok, msg = add_scope(name=name, interface=interface, subnet=subnet,
-                        range_start=range_start, range_end=range_end,
-                        router=router, dns_servers=dns_servers,
-                        domain=domain, lease_time=lease_time)
+    ok, msg = _run_dhcp_change(
+        lambda: add_scope(name=name, interface=interface, subnet=subnet,
+                          range_start=range_start, range_end=range_end,
+                          router=router, dns_servers=dns_servers,
+                          domain=domain, lease_time=lease_time),
+        enable_dhcp=True,
+    )
     if ok:
-        from modules.dns_db import set_setting
-        set_setting("dhcp_enabled", True)
-        write_dhcp_config()
         return ajax_or_redirect(f"Scope added: {name}", "dhcp")
     return ajax_or_redirect(msg, "dhcp", error=True)
 
 
 @app.route("/dns/dhcp/delete-scope/<int:scope_id>", methods=["POST"])
 def dns_dhcp_delete_scope(scope_id):
-    ok, msg = delete_scope(scope_id)
-    if ok:
-        write_dhcp_config()
-        from modules.dns_config import reload_dnsmasq
-        reload_dnsmasq()
+    ok, msg = _run_dhcp_change(lambda: delete_scope(scope_id))
     return ajax_or_redirect(msg if ok else msg, "dhcp", error=not ok)
 
 
@@ -1993,19 +2061,14 @@ def dns_dhcp_update_scope(scope_id):
     lease_time = request.form.get("lease_time", "").strip()
     if lease_time:
         fields["lease_time"] = int(lease_time)
-    ok, msg = update_scope(scope_id, **fields)
-    if ok:
-        write_dhcp_config()
-        from modules.dns_config import reload_dnsmasq
-        reload_dnsmasq()
+    ok, msg = _run_dhcp_change(lambda: update_scope(scope_id, **fields))
     return ajax_or_redirect(msg if ok else msg, "dhcp", error=not ok)
 
 
 @app.route("/dns/dhcp/toggle-scope/<int:scope_id>", methods=["POST"])
 def dns_dhcp_toggle_scope(scope_id):
-    ok, msg = toggle_scope(scope_id)
-    write_dhcp_config()
-    return ajax_or_redirect(msg, "dhcp")
+    ok, msg = _run_dhcp_change(lambda: toggle_scope(scope_id))
+    return ajax_or_redirect(msg, "dhcp", error=not ok)
 
 
 @app.route("/dns/dhcp/refresh-leases", methods=["POST"])
@@ -2016,8 +2079,8 @@ def dns_dhcp_refresh_leases():
 
 @app.route("/dns/dhcp/make-static/<int:lease_id>", methods=["POST"])
 def dns_dhcp_make_static(lease_id):
-    ok, msg = make_lease_static(lease_id)
-    return ajax_or_redirect(msg, "dhcp")
+    ok, msg = _run_dhcp_change(lambda: make_lease_static(lease_id))
+    return ajax_or_redirect(msg, "dhcp", error=not ok)
 
 
 @app.route("/dns/dhcp/add-static-lease", methods=["POST"])
@@ -2028,24 +2091,19 @@ def dns_dhcp_add_static_lease():
     comment = request.form.get("comment", "").strip() or None
     if not mac or not ip_addr:
         return ajax_or_redirect("MAC and IP required", "dhcp", error=True)
-    ok, msg = add_static_lease(scope_id=None, mac=mac, ip=ip_addr,
-                                hostname=hostname, comment=comment)
+    ok, msg = _run_dhcp_change(
+        lambda: add_static_lease(scope_id=None, mac=mac, ip=ip_addr,
+                                 hostname=hostname, comment=comment)
+    )
     if ok:
-        write_dhcp_config()
-        from modules.dns_config import reload_dnsmasq
-        reload_dnsmasq()
         return ajax_or_redirect(f"Static lease added: {mac} → {ip_addr}", "dhcp")
     return ajax_or_redirect(msg, "dhcp", error=True)
 
 
 @app.route("/dns/dhcp/delete-static-lease/<int:lease_id>", methods=["POST"])
 def dns_dhcp_delete_static_lease(lease_id):
-    ok, msg = delete_static_lease(lease_id)
-    if ok:
-        write_dhcp_config()
-        from modules.dns_config import reload_dnsmasq
-        reload_dnsmasq()
-    return ajax_or_redirect(msg, "dhcp")
+    ok, msg = _run_dhcp_change(lambda: delete_static_lease(lease_id))
+    return ajax_or_redirect(msg, "dhcp", error=not ok)
 
 
 @app.route("/dns/dhcp/update-static-lease/<int:lease_id>", methods=["POST"])
@@ -2056,11 +2114,9 @@ def dns_dhcp_update_static_lease(lease_id):
     comment = request.form.get("comment", "").strip()
     if not mac or not ip:
         return ajax_or_redirect("MAC and IP are required", "dhcp", error=True)
-    ok, msg = update_static_lease(lease_id, mac=mac, ip=ip, hostname=hostname, comment=comment)
-    if ok:
-        write_dhcp_config()
-        from modules.dns_config import reload_dnsmasq
-        reload_dnsmasq()
+    ok, msg = _run_dhcp_change(
+        lambda: update_static_lease(lease_id, mac=mac, ip=ip, hostname=hostname, comment=comment)
+    )
     return ajax_or_redirect(msg if ok else msg, "dhcp", error=not ok)
 
 
@@ -2072,20 +2128,20 @@ def dns_dhcp_add_option():
     option_type = request.form.get("option_type", "text").strip()
     option_value = request.form.get("option_value", "").strip()
     comment = request.form.get("comment", "").strip() or None
-    ok, result = add_dhcp_option(scope_id=scope_id, option_code=option_code,
-                                   option_name=option_name, option_type=option_type,
-                                   option_value=option_value, comment=comment)
+    ok, result = _run_dhcp_change(
+        lambda: add_dhcp_option(scope_id=scope_id, option_code=option_code,
+                                option_name=option_name, option_type=option_type,
+                                option_value=option_value, comment=comment)
+    )
     if ok:
-        write_dhcp_config()
         return ajax_or_redirect(f"DHCP option {option_code} added", "dhcp")
     return ajax_or_redirect(result, "dhcp", error=True)
 
 
 @app.route("/dns/dhcp/delete-option/<int:option_id>", methods=["POST"])
 def dns_dhcp_delete_option(option_id):
-    ok, msg = delete_dhcp_option(option_id)
-    write_dhcp_config()
-    return ajax_or_redirect(msg, "dhcp")
+    ok, msg = _run_dhcp_change(lambda: delete_dhcp_option(option_id))
+    return ajax_or_redirect(msg, "dhcp", error=not ok)
 
 
 @app.route("/dns/dhcp/detect-active", methods=["POST"])
@@ -2118,13 +2174,9 @@ def dns_dhcp_validate_config():
 
 @app.route("/dns/dhcp/reload", methods=["POST"])
 def dns_dhcp_reload():
-    from modules.dns_db import set_setting
-    set_setting("dhcp_enabled", True)
-    ok, msg = write_dhcp_config()
+    ok, msg = _run_dhcp_change(lambda: (True, "DHCP configuration reloaded"), enable_dhcp=True)
     if ok:
-        from modules.dns_config import reload_dnsmasq
-        ok2, msg2 = reload_dnsmasq()
-        return ajax_or_redirect(msg2, "dhcp")
+        return ajax_or_redirect(msg, "dhcp")
     return ajax_or_redirect(msg, "dhcp", error=True)
 
 
@@ -2148,14 +2200,8 @@ def dns_dhcp_bind_client(client_id):
     existing = [s for s in status.get("static_leases", []) if s["mac"].lower() == mac.lower()]
     if existing:
         return ajax_or_redirect(f"Already bound: {mac} → {existing[0]['ip']}", "clients")
-    ok, result = add_static_lease(scope_id=scope_id, mac=mac, ip=ip, hostname=name)
+    ok, result = _run_dhcp_change(lambda: add_static_lease(scope_id=scope_id, mac=mac, ip=ip, hostname=name))
     if ok:
-        try:
-            write_dhcp_config()
-            from modules.dns_config import reload_dnsmasq
-            reload_dnsmasq()
-        except Exception:
-            pass
         return ajax_or_redirect(f"DHCP bound: {mac} → {ip}", "clients")
     return ajax_or_redirect(str(result), "clients", error=True)
 
@@ -2174,14 +2220,8 @@ def dns_dhcp_unbind_client(client_id):
     existing = [s for s in status.get("static_leases", []) if s["mac"].lower() == mac.lower()]
     if not existing:
         return ajax_or_redirect("Not bound in DHCP", "clients")
-    ok, msg = delete_static_lease(existing[0]["id"])
+    ok, msg = _run_dhcp_change(lambda: delete_static_lease(existing[0]["id"]))
     if ok:
-        try:
-            write_dhcp_config()
-            from modules.dns_config import reload_dnsmasq
-            reload_dnsmasq()
-        except Exception:
-            pass
         return ajax_or_redirect(f"DHCP unbound: {mac}", "clients")
     return ajax_or_redirect(msg, "clients", error=True)
 
@@ -2386,18 +2426,23 @@ def dns_delete_client(client_id):
     client = next((c for c in clients if c["id"] == client_id), None)
     if client:
         mac = (client.get("mac") or "").lower()
-        if mac:
-            status = get_dhcp_status()
-            for sl in status.get("static_leases", []):
-                if sl["mac"].lower() == mac:
-                    delete_static_lease(sl["id"])
-            try:
-                write_dhcp_config()
-                from modules.dns_config import reload_dnsmasq
-                reload_dnsmasq()
-            except Exception:
-                pass
-    ok, msg = delete_client(client_id)
+        status = get_dhcp_status()
+        lease_ids = [sl["id"] for sl in status.get("static_leases", []) if mac and sl["mac"].lower() == mac]
+
+        def delete_client_and_leases():
+            for lease_id in lease_ids:
+                ok, message = delete_static_lease(lease_id)
+                if not ok:
+                    return ok, message
+            return delete_client(client_id)
+
+        ok, msg = _run_dhcp_change(
+            delete_client_and_leases,
+            extra_tables=("dns_clients", "dns_client_groups"),
+            full_dns=True,
+        )
+    else:
+        ok, msg = False, "Client not found"
     return ajax_or_redirect(msg, "clients")
 
 
@@ -2745,7 +2790,7 @@ def dns_family_schedule_route():
 
 @app.route("/dns/settings", methods=["POST"])
 def dns_settings():
-    from modules.dns_db import DEFAULT_SETTINGS
+    from modules.dns_db import DEFAULT_SETTINGS, get_all_settings
     updates = {}
     for key in DEFAULT_SETTINGS:
         val = request.form.get(key)
@@ -2764,8 +2809,13 @@ def dns_settings():
                     pass
             else:
                 updates[key] = val
+    previous = get_all_settings()
     update_dns_settings(updates)
-    threading.Thread(target=apply_config, daemon=True).start()
+    ok, message = apply_config()
+    if not ok:
+        update_dns_settings({key: previous[key] for key in updates if key in previous})
+        apply_config()
+        return ajax_or_redirect(f"Settings rejected: {message}", "settings", error=True)
     return ajax_or_redirect("Settings saved and config applied", "settings")
 
 
@@ -3025,9 +3075,12 @@ def api_dns_reload():
 @app.route("/api/dns/toggle-redirect", methods=["POST"])
 def api_dns_toggle_redirect():
     from modules.dns_nft import toggle_dns_redirect
+    from modules.dns_db import set_setting
     data = request.get_json(silent=True) or {}
-    enabled = data.get("enabled", True)
+    enabled = bool(data.get("enabled", True))
     ok, msg = toggle_dns_redirect(enabled)
+    if ok:
+        set_setting("redirect_external_dns", enabled)
     return json_response({"ok": ok, "message": msg})
 
 @app.route("/api/dns/lists")
@@ -3139,7 +3192,7 @@ def api_dns_clients():
 def api_dns_add_client():
     data = request.get_json(silent=True) or request.form
     ok, msg = add_client(name=data.get("name"), ip=data.get("ip"), mac=data.get("mac"),
-                         cidr=data.get("cidr"), policy_id=data.get("policy_id", type=int) if data.get("policy_id") else None,
+                         cidr=data.get("cidr"), policy_id=int(data.get("policy_id")) if data.get("policy_id") else None,
                          tags=data.get("tags"), notes=data.get("notes"))
     return json_response({"ok": ok, "id" if ok else "error": msg})
 
@@ -3291,7 +3344,7 @@ def api_dns_group_remove_client(group_id, client_id):
 @app.route("/api/dns/groups/<int:group_id>/rules", methods=["POST"])
 def api_dns_group_add_rule(group_id):
     data = request.get_json(silent=True) or request.form
-    rule_id = data.get("rule_id", type=int)
+    rule_id = int(data.get("rule_id")) if data.get("rule_id") else None
     ok, msg = add_rule_to_group(rule_id, group_id)
     return json_response({"ok": ok, "message": msg})
 
@@ -3305,7 +3358,7 @@ def api_dns_group_remove_rule(group_id, rule_id):
 @app.route("/api/dns/groups/<int:group_id>/lists", methods=["POST"])
 def api_dns_group_add_list(group_id):
     data = request.get_json(silent=True) or request.form
-    list_id = data.get("list_id", type=int)
+    list_id = int(data.get("list_id")) if data.get("list_id") else None
     ok, msg = add_list_to_group(list_id, group_id)
     return json_response({"ok": ok, "message": msg})
 
@@ -3368,17 +3421,15 @@ def api_dhcp_scopes():
 @app.route("/api/dhcp/scopes", methods=["POST"])
 def api_dhcp_add_scope():
     data = request.get_json(silent=True) or request.form
-    ok, msg = add_scope(
-        name=data.get("name", "Default"),
-        interface=data.get("interface", "eth0"),
-        subnet=data.get("subnet", ""),
-        range_start=data.get("range_start"),
-        range_end=data.get("range_end"),
-        router=data.get("router"),
-        dns_servers=data.get("dns_servers"),
-        domain=data.get("domain", "lan"),
-        lease_time=int(data.get("lease_time", 86400)),
-        authoritative=int(data.get("authoritative", 1)),
+    ok, msg = _run_dhcp_change(
+        lambda: add_scope(
+            name=data.get("name", "Default"), interface=data.get("interface", "eth0"),
+            subnet=data.get("subnet", ""), range_start=data.get("range_start"),
+            range_end=data.get("range_end"), router=data.get("router"),
+            dns_servers=data.get("dns_servers"), domain=data.get("domain", "lan"),
+            lease_time=int(data.get("lease_time", 86400)),
+            authoritative=int(data.get("authoritative", 1))),
+        enable_dhcp=True,
     )
     return json_response({"ok": ok, "id" if ok else "error": msg})
 
@@ -3386,25 +3437,25 @@ def api_dhcp_add_scope():
 @app.route("/api/dhcp/scopes/<int:scope_id>", methods=["PUT"])
 def api_dhcp_update_scope(scope_id):
     data = request.get_json(silent=True) or request.form
-    ok, msg = update_scope(scope_id, **data)
+    ok, msg = _run_dhcp_change(lambda: update_scope(scope_id, **data))
     return json_response({"ok": ok, "message": msg})
 
 
 @app.route("/api/dhcp/scopes/<int:scope_id>", methods=["DELETE"])
 def api_dhcp_delete_scope(scope_id):
-    ok, msg = delete_scope(scope_id)
+    ok, msg = _run_dhcp_change(lambda: delete_scope(scope_id))
     return json_response({"ok": ok, "message": msg})
 
 
 @app.route("/api/dhcp/scopes/<int:scope_id>/enable", methods=["POST"])
 def api_dhcp_enable_scope(scope_id):
-    ok, msg = toggle_scope(scope_id, enabled=1)
+    ok, msg = _run_dhcp_change(lambda: toggle_scope(scope_id, enabled=1))
     return json_response({"ok": ok, "message": msg})
 
 
 @app.route("/api/dhcp/scopes/<int:scope_id>/disable", methods=["POST"])
 def api_dhcp_disable_scope(scope_id):
-    ok, msg = toggle_scope(scope_id, enabled=0)
+    ok, msg = _run_dhcp_change(lambda: toggle_scope(scope_id, enabled=0))
     return json_response({"ok": ok, "message": msg})
 
 
@@ -3424,7 +3475,7 @@ def api_dhcp_refresh_leases():
 
 @app.route("/api/dhcp/leases/<int:lease_id>/make-static", methods=["POST"])
 def api_dhcp_make_static(lease_id):
-    ok, msg = make_lease_static(lease_id)
+    ok, msg = _run_dhcp_change(lambda: make_lease_static(lease_id))
     return json_response({"ok": ok, "message": msg})
 
 
@@ -3437,21 +3488,20 @@ def api_dhcp_static_leases():
 @app.route("/api/dhcp/static-leases", methods=["POST"])
 def api_dhcp_add_static_lease():
     data = request.get_json(silent=True) or request.form
-    ok, msg = add_static_lease(
-        scope_id=data.get("scope_id", type=int),
-        mac=data.get("mac", ""),
-        ip=data.get("ip", ""),
-        hostname=data.get("hostname"),
-        client_name=data.get("client_name"),
-        policy_id=data.get("policy_id", type=int) if data.get("policy_id") else None,
-        comment=data.get("comment"),
+    ok, msg = _run_dhcp_change(
+        lambda: add_static_lease(
+            scope_id=int(data.get("scope_id")) if data.get("scope_id") else None, mac=data.get("mac", ""),
+            ip=data.get("ip", ""), hostname=data.get("hostname"),
+            client_name=data.get("client_name"),
+            policy_id=int(data.get("policy_id")) if data.get("policy_id") else None,
+            comment=data.get("comment"))
     )
     return json_response({"ok": ok, "id" if ok else "error": msg})
 
 
 @app.route("/api/dhcp/static-leases/<int:lease_id>", methods=["DELETE"])
 def api_dhcp_delete_static_lease(lease_id):
-    ok, msg = delete_static_lease(lease_id)
+    ok, msg = _run_dhcp_change(lambda: delete_static_lease(lease_id))
     return json_response({"ok": ok, "message": msg})
 
 
@@ -3477,11 +3527,9 @@ def api_dhcp_validate_config():
 
 @app.route("/api/dhcp/reload", methods=["POST"])
 def api_dhcp_reload():
-    ok, msg = write_dhcp_config()
+    ok, msg = _run_dhcp_change(lambda: (True, "DHCP configuration reloaded"))
     if ok:
-        from modules.dns_config import reload_dnsmasq
-        ok2, msg2 = reload_dnsmasq()
-        return json_response({"ok": ok2, "message": msg2})
+        return json_response({"ok": True, "message": msg})
     return json_response({"ok": False, "error": msg})
 
 
@@ -3494,13 +3542,12 @@ def api_dhcp_options():
 @app.route("/api/dhcp/options", methods=["POST"])
 def api_dhcp_add_option():
     data = request.get_json(silent=True) or request.form
-    ok, result = add_dhcp_option(
-        scope_id=data.get("scope_id", type=int) if data.get("scope_id") else None,
-        option_code=int(data.get("option_code", 6)),
-        option_name=data.get("option_name"),
-        option_type=data.get("option_type", "text"),
-        option_value=data.get("option_value", ""),
-        comment=data.get("comment"),
+    ok, result = _run_dhcp_change(
+        lambda: add_dhcp_option(
+            scope_id=int(data.get("scope_id")) if data.get("scope_id") else None,
+            option_code=int(data.get("option_code", 6)), option_name=data.get("option_name"),
+            option_type=data.get("option_type", "text"), option_value=data.get("option_value", ""),
+            comment=data.get("comment"))
     )
     return json_response({"ok": ok, "id" if ok else "error": result})
 
@@ -3508,13 +3555,13 @@ def api_dhcp_add_option():
 @app.route("/api/dhcp/options/<int:option_id>", methods=["PUT"])
 def api_dhcp_update_option(option_id):
     data = request.get_json(silent=True) or request.form
-    ok, msg = update_dhcp_option(option_id, **data)
+    ok, msg = _run_dhcp_change(lambda: update_dhcp_option(option_id, **data))
     return json_response({"ok": ok, "message": msg})
 
 
 @app.route("/api/dhcp/options/<int:option_id>", methods=["DELETE"])
 def api_dhcp_delete_option(option_id):
-    ok, msg = delete_dhcp_option(option_id)
+    ok, msg = _run_dhcp_change(lambda: delete_dhcp_option(option_id))
     return json_response({"ok": ok, "message": msg})
 
 
@@ -3529,28 +3576,27 @@ def dhcp_add_scope():
     dns_servers = request.form.get("dns_servers", "").strip() or None
     domain = request.form.get("domain", "lan").strip()
     lease_time = int(request.form.get("lease_time", 86400))
-    ok, msg = add_scope(name=name, interface=interface, subnet=subnet,
-                        range_start=range_start, range_end=range_end,
-                        router=router, dns_servers=dns_servers,
-                        domain=domain, lease_time=lease_time)
+    ok, msg = _run_dhcp_change(
+        lambda: add_scope(name=name, interface=interface, subnet=subnet,
+                          range_start=range_start, range_end=range_end,
+                          router=router, dns_servers=dns_servers,
+                          domain=domain, lease_time=lease_time),
+        enable_dhcp=True,
+    )
     if ok:
-        from modules.dns_db import set_setting
-        set_setting("dhcp_enabled", True)
-        write_dhcp_config()
         return redirect(f"/dhcp?message=Scope added")
     return _safe_redirect(f"/dhcp?message={msg}&error=1")
 
 
 @app.route("/dhcp/delete-scope/<int:scope_id>", methods=["POST"])
 def dhcp_delete_scope(scope_id):
-    ok, msg = delete_scope(scope_id)
+    ok, msg = _run_dhcp_change(lambda: delete_scope(scope_id))
     return _safe_redirect(f"/dhcp?message={msg}")
 
 
 @app.route("/dhcp/toggle-scope/<int:scope_id>", methods=["POST"])
 def dhcp_toggle_scope(scope_id):
-    ok, msg = toggle_scope(scope_id)
-    write_dhcp_config()
+    ok, msg = _run_dhcp_change(lambda: toggle_scope(scope_id))
     return _safe_redirect(f"/dhcp?message={msg}")
 
 
@@ -3562,7 +3608,7 @@ def dhcp_refresh_leases():
 
 @app.route("/dhcp/make-static/<int:lease_id>", methods=["POST"])
 def dhcp_make_static(lease_id):
-    ok, msg = make_lease_static(lease_id)
+    ok, msg = _run_dhcp_change(lambda: make_lease_static(lease_id))
     return _safe_redirect(f"/dhcp?message={msg}")
 
 
@@ -3574,9 +3620,10 @@ def dhcp_add_static_lease():
     comment = request.form.get("comment", "").strip() or None
     if not mac or not ip:
         return redirect("/dhcp?message=MAC and IP required&error=1")
-    ok, msg = add_static_lease(scope_id=None, mac=mac, ip=ip, hostname=hostname, comment=comment)
+    ok, msg = _run_dhcp_change(
+        lambda: add_static_lease(scope_id=None, mac=mac, ip=ip, hostname=hostname, comment=comment)
+    )
     if ok:
-        write_dhcp_config()
         return _safe_redirect(f"/dhcp?message=Static lease added: {mac} → {ip}")
     return _safe_redirect(f"/dhcp?message={msg}&error=1")
 
@@ -3584,8 +3631,7 @@ def dhcp_add_static_lease():
 @app.route("/dhcp/delete-static-lease/<int:lease_id>", methods=["POST"])
 def dhcp_delete_static_lease(lease_id):
     from modules.dhcp import delete_static_lease
-    ok, msg = delete_static_lease(lease_id)
-    write_dhcp_config()
+    ok, msg = _run_dhcp_change(lambda: delete_static_lease(lease_id))
     return _safe_redirect(f"/dhcp?message={msg}")
 
 
@@ -3612,13 +3658,9 @@ def dhcp_validate_config():
 
 @app.route("/dhcp/reload", methods=["POST"])
 def dhcp_reload():
-    from modules.dns_db import set_setting
-    set_setting("dhcp_enabled", True)
-    ok, msg = write_dhcp_config()
+    ok, msg = _run_dhcp_change(lambda: (True, "DHCP configuration reloaded"), enable_dhcp=True)
     if ok:
-        from modules.dns_config import reload_dnsmasq
-        ok2, msg2 = reload_dnsmasq()
-        return _safe_redirect(f"/dhcp?message={msg2}")
+        return _safe_redirect(f"/dhcp?message={msg}")
     return _safe_redirect(f"/dhcp?message={msg}&error=1")
 
 
@@ -3630,19 +3672,19 @@ def dhcp_add_option():
     option_type = request.form.get("option_type", "text").strip()
     option_value = request.form.get("option_value", "").strip()
     comment = request.form.get("comment", "").strip() or None
-    ok, result = add_dhcp_option(scope_id=scope_id, option_code=option_code,
-                                  option_name=option_name, option_type=option_type,
-                                  option_value=option_value, comment=comment)
+    ok, result = _run_dhcp_change(
+        lambda: add_dhcp_option(scope_id=scope_id, option_code=option_code,
+                                option_name=option_name, option_type=option_type,
+                                option_value=option_value, comment=comment)
+    )
     if ok:
-        write_dhcp_config()
         return _safe_redirect(f"/dhcp?message=DHCP option {option_code} added")
     return _safe_redirect(f"/dhcp?message={result}&error=1")
 
 
 @app.route("/dhcp/delete-option/<int:option_id>", methods=["POST"])
 def dhcp_delete_option(option_id):
-    ok, msg = delete_dhcp_option(option_id)
-    write_dhcp_config()
+    ok, msg = _run_dhcp_change(lambda: delete_dhcp_option(option_id))
     return _safe_redirect(f"/dhcp?message={msg}")
 
 

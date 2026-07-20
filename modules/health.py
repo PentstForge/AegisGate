@@ -4,6 +4,7 @@ import shutil
 import time
 
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "config.json")
+HEALTH_STATUS_FILE = "/run/aegisgate/health.json"
 
 def _load_net_config():
     try:
@@ -169,15 +170,38 @@ def get_uptime():
         return "unknown"
 
 
-def get_services():
+def get_services(recovery=None):
     from modules.nft_utils import svc_status, svc_uptime
-    svc_names = ["nftables", "crowdsec", "crowdsec-firewall-bouncer", "suricata", "ssh", "nft-dashboard"]
+    svc_names = [
+        "nftables", "dnsmasq", "wg-quick@wg0", "nft-dashboard",
+        "aegisgate-health", "qos-setup", "crowdsec",
+        "crowdsec-firewall-bouncer", "suricata", "ssh",
+    ]
+    expected_checks = {
+        "dnsmasq": "dns",
+        "wg-quick@wg0": "wireguard",
+        "qos-setup": "qos",
+    }
+    checks = (recovery or {}).get("checks", {})
     result = []
     for name in svc_names:
-        st = svc_status(name)
+        check = checks.get(expected_checks.get(name, ""), {})
+        expected = check.get("expected", True)
+        st = svc_status(name) if expected else "disabled"
         up = svc_uptime(name) if st == "active" else ""
-        result.append({"name": name, "status": st, "uptime": up})
+        result.append({"name": name, "status": st, "uptime": up, "expected": expected})
     return result
+
+
+def get_recovery_status():
+    try:
+        with open(HEALTH_STATUS_FILE) as handle:
+            data = json.load(handle)
+        checked_at = int(data.get("checked_at", 0))
+        data["stale"] = not checked_at or time.time() - checked_at > 120
+        return data
+    except (OSError, ValueError, TypeError):
+        return {"overall": "unavailable", "checked_at": 0, "checks": {}, "actions": [], "stale": True}
 
 
 def get_alert_level(value, warn_threshold, crit_threshold):
@@ -197,7 +221,8 @@ def get_health():
     cpu_temp = get_cpu_temp()
     load = get_load_avg()
     uptime = get_uptime()
-    services = get_services()
+    recovery = get_recovery_status()
+    services = get_services(recovery)
     from modules.suricata import get_suricata_rules, get_suricata_mode
     suricata_rules = get_suricata_rules()
     suricata_mode = get_suricata_mode()
@@ -216,7 +241,7 @@ def get_health():
 
     svc_alerts = {}
     for svc in services:
-        svc_alerts[svc["name"]] = "ok" if svc["status"] == "active" else "critical"
+        svc_alerts[svc["name"]] = "ok" if svc["status"] in ("active", "disabled") else "critical"
 
     return {
         "cpu_usage": cpu_usage,
@@ -234,6 +259,7 @@ def get_health():
         "ct_alert": ct_alert,
         "uptime": uptime,
         "services": services,
+        "recovery": recovery,
         "svc_alerts": svc_alerts,
         "suricata_rules": suricata_rules,
         "suricata_mode": suricata_mode,

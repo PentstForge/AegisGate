@@ -7,7 +7,7 @@ from .dns_db import get_db, get_setting, set_setting, get_all_settings, ensure_s
 from .dns_config import (
     write_all_configs, reload_dnsmasq, start_dnsmasq, stop_dnsmasq,
     get_dnsmasq_status, rollback_configs, ensure_dnsmasq_dir, BLOCKLIST_CONF,
-    LOCAL_CONF, UPSTREAM_CONF, MAIN_CONF,
+    LOCAL_CONF, UPSTREAM_CONF, MAIN_CONF, validate_dnsmasq_config, dns_config_lock,
 )
 from .dns_rules import get_rules_for_config, add_rule, delete_rule, toggle_rule, get_rules, check_host, import_rules_from_text
 from .dns_lists import add_list, delete_list, toggle_list, get_lists, get_list_by_id, download_list, update_all_lists, purge_list_rules
@@ -18,6 +18,11 @@ from .dhcp import get_static_leases
 
 
 def init_dns():
+    with dns_config_lock():
+        return _init_dns_locked()
+
+
+def _init_dns_locked():
     ensure_settings()
     ensure_dnsmasq_dir()
     ensure_default_policies()
@@ -30,25 +35,43 @@ def init_dns():
     policies = get_policies()
     static_leases = get_static_leases() if settings.get("dhcp_enabled") else []
     rules = _with_service_rules(rules, settings, clients, policies)
-    return write_all_configs(settings, rules=rules, records=records, rewrites=rewrites,
-                             upstreams=upstreams, clients=clients, policies=policies,
-                             static_leases=static_leases)
+    ok, message = write_all_configs(settings, rules=rules, records=records, rewrites=rewrites,
+                                    upstreams=upstreams, clients=clients, policies=policies,
+                                    static_leases=static_leases)
+    if not ok:
+        rollback_configs()
+        return ok, message
+    from .dhcp import write_dhcp_config
+    dhcp_ok, dhcp_message = write_dhcp_config(lock=False)
+    if not dhcp_ok:
+        rollback_configs()
+        return False, dhcp_message
+    full_ok, full_error = validate_dnsmasq_config()
+    if not full_ok:
+        rollback_configs()
+        return False, f"Full dnsmasq validation failed: {full_error}"
+    return True, message
 
 
 def toggle_dns(enabled=None):
     settings = get_all_settings()
     if enabled is None:
         enabled = not settings.get("dns_enabled", False)
-    settings["dns_enabled"] = enabled
-    set_setting("dns_enabled", enabled)
     if enabled:
-        init_dns()
+        ok, msg = init_dns()
+        if not ok:
+            add_event("dns_toggle_failed", "high", "dns", msg)
+            return False, msg
         ok, msg = start_dnsmasq()
-        add_event("dns_toggled", "info", "dns", f"DNS {'enabled' if enabled else 'disabled'}")
+        if ok:
+            set_setting("dns_enabled", True)
+        add_event("dns_toggled" if ok else "dns_toggle_failed", "info" if ok else "high", "dns", msg)
         return ok, msg
     else:
         ok, msg = stop_dnsmasq()
-        add_event("dns_toggled", "info", "dns", f"DNS disabled")
+        if ok:
+            set_setting("dns_enabled", False)
+        add_event("dns_toggled" if ok else "dns_toggle_failed", "info" if ok else "high", "dns", msg)
         return ok, msg
 
 
@@ -172,6 +195,11 @@ def get_status(period_seconds=None):
 
 
 def apply_config():
+    with dns_config_lock():
+        return _apply_config_locked()
+
+
+def _apply_config_locked():
     settings = get_all_settings()
     rules = get_rules_for_config()
     records = get_local_records()
@@ -189,9 +217,18 @@ def apply_config():
         rollback_configs()
         return False, msg
     from .dhcp import write_dhcp_config
-    write_dhcp_config()
-    ok2, msg2 = reload_dnsmasq()
+    dhcp_ok, dhcp_msg = write_dhcp_config(lock=False)
+    if not dhcp_ok:
+        rollback_configs()
+        return False, dhcp_msg
+    test_ok, test_error = validate_dnsmasq_config()
+    if not test_ok:
+        rollback_configs()
+        return False, f"Full dnsmasq validation failed: {test_error}"
+    ok2, msg2 = reload_dnsmasq() if settings.get("dns_enabled", True) else stop_dnsmasq()
     if not ok2:
+        rollback_configs()
+        reload_dnsmasq()
         return False, msg2
     from .dns_service_nft import apply_service_blocks
     apply_service_blocks()

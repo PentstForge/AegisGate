@@ -111,12 +111,31 @@
 
 <div id="tab-services" class="tab-panel">
 <div class="panel-card">
+  <div class="panel-card-title">Automatic Recovery <span>{{ health.recovery.overall }}</span></div>
+  {% if health.recovery.checks %}
+  <div class="svc-grid-health">
+    {% for name, check in health.recovery.checks.items() %}
+    <div class="svc-item">
+      <span><span class="dot {{ 'dot-ok' if check.ok else 'dot-fail' }}"></span>{{ name }}</span>
+      <span class="{{ 'alert-ok' if check.ok else 'alert-critical' }}" title="{{ check.detail }}">{{ 'ok' if check.ok else 'failed' }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="alert-warning">Health monitor status is unavailable. The service may still be starting.</p>
+  {% endif %}
+  {% if health.recovery.stale %}<p class="alert-warning">Health monitor data is stale.</p>{% endif %}
+  {% if health.recovery.actions %}
+  <p class="sub">Last recovery: {{ health.recovery.actions[-1].service }} &middot; {{ 'success' if health.recovery.actions[-1].ok else 'failed' }}</p>
+  {% endif %}
+</div>
+<div class="panel-card">
   <div class="panel-card-title">Services <span>{{ health.services|length }}</span></div>
   <div class="svc-grid-health">
     {% for svc in health.services %}
     <div class="svc-item">
-      <span><span class="dot {{ 'dot-ok' if svc.status == 'active' else 'dot-fail' }}"></span>{{ svc.name }}</span>
-      <span class="{{ 'alert-ok' if svc.status == 'active' else 'alert-critical' }}">{{ svc.status }}</span>
+      <span><span class="dot {{ 'dot-ok' if svc.status in ('active', 'disabled') else 'dot-fail' }}"></span>{{ svc.name }}</span>
+      <span class="{{ 'alert-ok' if svc.status in ('active', 'disabled') else 'alert-critical' }}">{{ svc.status }}</span>
     </div>
     {% endfor %}
   </div>
