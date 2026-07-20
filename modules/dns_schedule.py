@@ -9,6 +9,7 @@ from .dns_db import get_db, add_event
 
 
 TABLE = "aegis_dns_schedule"
+NFT = "/usr/sbin/nft"
 WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 
 
@@ -81,12 +82,12 @@ def get_scheduled_blocks(now=None):
 
 
 def _run_nft(content):
-    return subprocess.run(["nft", "-f", "-"], input=content, text=True, capture_output=True, timeout=10)
+    return subprocess.run([NFT, "-f", "-"], input=content, text=True, capture_output=True, timeout=10)
 
 
 def apply_schedules(now=None):
     blocks = get_scheduled_blocks(now=now)
-    subprocess.run(["nft", "delete", "table", "inet", TABLE], capture_output=True, text=True, timeout=5)
+    subprocess.run([NFT, "delete", "table", "inet", TABLE], capture_output=True, text=True, timeout=5)
     if not blocks:
         add_event("schedule_applied", "info", "dns_schedule", "No active DNS family schedule blocks")
         return True, "No active schedule blocks", []

@@ -467,7 +467,17 @@ def ensure_nft_sets():
 
 def restore_ipbl():
     ensure_nft_sets()
+    errors = []
+    for set_name in ("ipbl_ipv4", "ipbl_ipv6"):
+        result = subprocess.run(
+            [NFT, "list", "set", "inet", "filter", set_name],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode != 0:
+            errors.append(f"{set_name}: {result.stderr.strip()}")
     if not os.path.isdir(NFT_DIR):
+        if errors:
+            raise RuntimeError("; ".join(errors))
         return 0
     nft_files = sorted(f for f in os.listdir(NFT_DIR) if f.endswith(".nft"))
     count = 0
@@ -477,16 +487,22 @@ def restore_ipbl():
             r = subprocess.run([NFT, "-f", path], capture_output=True, text=True, timeout=30)
             if r.returncode == 0:
                 count += 1
-        except Exception:
-            pass
+            else:
+                errors.append(f"{fname}: {r.stderr.strip()}")
+        except Exception as exc:
+            errors.append(f"{fname}: {exc}")
     entries = get_custom_entries()
     for e in entries:
         set_name = "ipbl_ipv6" if ":" in e["ip_or_cidr"] else "ipbl_ipv4"
         try:
-            subprocess.run([NFT, "add", "element", "inet", "filter", set_name, f"{{ {e['ip_or_cidr']} }}"],
-                          capture_output=True, text=True, timeout=10)
-        except Exception:
-            pass
+            result = subprocess.run([NFT, "add", "element", "inet", "filter", set_name, f"{{ {e['ip_or_cidr']} }}"],
+                                    capture_output=True, text=True, timeout=10)
+            if result.returncode != 0 and "File exists" not in result.stderr:
+                errors.append(f"{e['ip_or_cidr']}: {result.stderr.strip()}")
+        except Exception as exc:
+            errors.append(f"{e['ip_or_cidr']}: {exc}")
+    if errors:
+        raise RuntimeError("; ".join(errors))
     return count
 
 

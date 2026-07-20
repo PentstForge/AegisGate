@@ -3,6 +3,7 @@ import os
 import sqlite3
 import time
 import json
+import threading
 
 DB_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "dns.db"
@@ -10,6 +11,9 @@ DB_PATH = os.path.join(
 LISTS_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "dns-lists"
 )
+
+_SCHEMA_LOCK = threading.Lock()
+_SCHEMA_READY = False
 
 DB_CREATE = """
 CREATE TABLE IF NOT EXISTS dns_settings (
@@ -323,14 +327,19 @@ CREATE TABLE IF NOT EXISTS dhcp_events (
 
 
 def get_db():
+    global _SCHEMA_READY
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     os.makedirs(LISTS_DIR, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH, timeout=10)
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA busy_timeout=5000")
-    conn.executescript(DB_CREATE)
-    _ensure_schema(conn)
+    conn.execute("PRAGMA busy_timeout=30000")
+    if not _SCHEMA_READY:
+        with _SCHEMA_LOCK:
+            if not _SCHEMA_READY:
+                conn.execute("PRAGMA journal_mode=WAL")
+                conn.executescript(DB_CREATE)
+                _ensure_schema(conn)
+                _SCHEMA_READY = True
     return conn
 
 
@@ -383,7 +392,7 @@ def get_all_settings():
 
 
 DEFAULT_SETTINGS = {
-    "dns_enabled": False,
+    "dns_enabled": True,
     "dns_listen_addr": "0.0.0.0",
     "dns_listen_port": 53,
     "cache_size": 5000,

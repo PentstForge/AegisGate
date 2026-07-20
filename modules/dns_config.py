@@ -5,6 +5,8 @@ import shutil
 import sqlite3
 import subprocess
 import time
+import fcntl
+from contextlib import contextmanager
 
 import json
 
@@ -20,6 +22,15 @@ DHCP_CONF = os.path.join(CONF_DIR, "aegisgate-dhcp.conf")
 BACKUP_DIR = "/etc/dnsmasq.d/aegisgate-backup"
 
 DNSMASQ_BIN = "/usr/sbin/dnsmasq"
+DNS_APPLY_LOCK = "/run/lock/aegisgate-dns-apply.lock"
+
+
+@contextmanager
+def dns_config_lock():
+    os.makedirs(os.path.dirname(DNS_APPLY_LOCK), exist_ok=True)
+    with open(DNS_APPLY_LOCK, "w") as lock_handle:
+        fcntl.flock(lock_handle, fcntl.LOCK_EX)
+        yield
 
 
 def _run(cmd, timeout=10):
@@ -36,13 +47,27 @@ def _backup_configs():
     for f in [MAIN_CONF, BLOCKLIST_CONF, LOCAL_CONF, CLIENTS_CONF, UPSTREAM_CONF, DHCP_CONF]:
         if os.path.exists(f):
             shutil.copy2(f, os.path.join(BACKUP_DIR, f"{os.path.basename(f)}.{ts}"))
+    _prune_backups()
+
+
+def _prune_backups(keep=5):
+    for base in [os.path.basename(path) for path in [MAIN_CONF, BLOCKLIST_CONF, LOCAL_CONF, CLIENTS_CONF, UPSTREAM_CONF, DHCP_CONF]]:
+        snapshots = sorted(
+            (name for name in os.listdir(BACKUP_DIR) if name.startswith(base + ".")),
+            reverse=True,
+        )
+        for name in snapshots[keep:]:
+            try:
+                os.unlink(os.path.join(BACKUP_DIR, name))
+            except OSError:
+                pass
 
 
 def _write_conf(path, content):
     tmp = path + ".tmp"
     with open(tmp, "w") as f:
         f.write(content)
-    ok, out, err = _run(["dnsmasq", "--conf-file=" + tmp, "--test"], timeout=10)
+    ok, out, err = _run([DNSMASQ_BIN, "--conf-file=" + tmp, "--test"], timeout=10)
     if ok:
         os.rename(tmp, path)
         return True, f"Config written: {path}"
@@ -56,11 +81,16 @@ def _validate_syntax(content):
     try:
         with open(tmp, "w") as f:
             f.write(content)
-        ok, out, err = _run(["dnsmasq", "--conf-file=" + tmp, "--test"], timeout=10)
+        ok, out, err = _run([DNSMASQ_BIN, "--conf-file=" + tmp, "--test"], timeout=10)
         return ok, err
     finally:
         if os.path.exists(tmp):
             os.unlink(tmp)
+
+
+def validate_dnsmasq_config():
+    ok, _out, err = _run([DNSMASQ_BIN, "--test"], timeout=45)
+    return ok, err
 
 
 def generate_main_config(settings):
@@ -179,7 +209,8 @@ def _write_blocklists_streaming(settings, extra_rules=None):
     
     list_map = {}
     try:
-        conn = sqlite3.connect(db_path)
+        conn = sqlite3.connect(db_path, timeout=30)
+        conn.execute("PRAGMA busy_timeout=30000")
         conn.row_factory = sqlite3.Row
         for row in conn.execute("SELECT id, name FROM dns_lists").fetchall():
             list_map[row["id"]] = row["name"]
@@ -189,7 +220,8 @@ def _write_blocklists_streaming(settings, extra_rules=None):
     
     manual_lines = ["# AegisGate manual/allow/rewrite rules - generated", ""]
     
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=30)
+    conn.execute("PRAGMA busy_timeout=30000")
     cursor = conn.execute(
         "SELECT value, action, type, source, modifiers_json FROM dns_rules WHERE enabled=1 ORDER BY priority ASC, id ASC"
     )
@@ -326,7 +358,7 @@ def _write_blocklists_streaming(settings, extra_rules=None):
 
 def _validate_syntax_file(path):
     try:
-        ok, out, err = _run(["dnsmasq", f"--conf-file={path}", "--test"], timeout=30)
+        ok, out, err = _run([DNSMASQ_BIN, f"--conf-file={path}", "--test"], timeout=30)
         return ok, err
     except Exception as e:
         return False, str(e)
@@ -551,7 +583,7 @@ def write_all_configs(settings, rules=None, records=None, rewrites=None,
 
 
 def reload_dnsmasq():
-    ok, out, err = _run(["systemctl", "restart", "dnsmasq"], timeout=15)
+    ok, out, err = _run(["/usr/bin/systemctl", "restart", "dnsmasq"], timeout=45)
     if ok:
         return True, "dnsmasq restarted"
     ok2, _, _ = _run(["killall", "-HUP", "dnsmasq"], timeout=5)
@@ -561,29 +593,23 @@ def reload_dnsmasq():
 
 
 def start_dnsmasq():
-    ok, out, err = _run(["systemctl", "start", "dnsmasq"], timeout=15)
+    ok, out, err = _run(["/usr/bin/systemctl", "enable", "--now", "dnsmasq"], timeout=45)
     if ok:
-        return True, "dnsmasq started"
-    ok2, out2, err2 = _run(["/usr/sbin/dnsmasq"], timeout=5)
-    if ok2:
-        return True, "dnsmasq started (direct)"
+        return True, "dnsmasq enabled and started"
     return False, f"dnsmasq start failed: {err}"
 
 
 def stop_dnsmasq():
-    ok, out, err = _run(["systemctl", "stop", "dnsmasq"], timeout=10)
+    ok, out, err = _run(["/usr/bin/systemctl", "disable", "--now", "dnsmasq"], timeout=30)
     if ok:
-        return True, "dnsmasq stopped"
-    ok2, _, _ = _run(["killall", "dnsmasq"], timeout=5)
-    if ok2:
-        return True, "dnsmasq killed"
+        return True, "dnsmasq disabled and stopped"
     return False, f"dnsmasq stop failed: {err}"
 
 
 def get_dnsmasq_status():
-    ok, out, err = _run(["systemctl", "is-active", "dnsmasq"], timeout=5)
+    ok, out, err = _run(["/usr/bin/systemctl", "is-active", "dnsmasq"], timeout=5)
     if ok and "active" in out:
-        ok2, out2, _ = _run(["systemctl", "show", "dnsmasq", "--property=ActiveEnterTimestamp"], timeout=5)
+        ok2, out2, _ = _run(["/usr/bin/systemctl", "show", "dnsmasq", "--property=ActiveEnterTimestamp"], timeout=5)
         uptime = out2.strip().split("=", 1)[-1] if ok2 else "unknown"
         return {"running": True, "uptime": uptime}
     ok3, pid_out, _ = _run(["pgrep", "-x", "dnsmasq"], timeout=5)
@@ -622,12 +648,17 @@ def ensure_dnsmasq_dir():
     os.makedirs(CONF_DIR, exist_ok=True)
     main_dnsmasq_conf = "/etc/dnsmasq.conf"
     if os.path.exists(main_dnsmasq_conf):
-        with open(main_dnsmasq_conf) as f:
+        with open(main_dnsmasq_conf, encoding="utf-8") as f:
             content = f.read()
         if "aegisgate.conf" not in content:
-            with open(main_dnsmasq_conf, "w") as f:
+            with open(main_dnsmasq_conf, "a", encoding="utf-8") as f:
+                if content and not content.endswith("\n"):
+                    f.write("\n")
                 f.write("# AegisGate dnsmasq main config\nconf-file=/etc/dnsmasq.d/aegisgate.conf\n")
-    for f in [MAIN_CONF, BLOCKLIST_CONF, LOCAL_CONF, UPSTREAM_CONF, CLIENTS_CONF]:
+    else:
+        with open(main_dnsmasq_conf, "w", encoding="utf-8") as f:
+            f.write("# AegisGate dnsmasq main config\nconf-file=/etc/dnsmasq.d/aegisgate.conf\n")
+    for f in [MAIN_CONF, BLOCKLIST_CONF, LOCAL_CONF, UPSTREAM_CONF, DHCP_CONF, CLIENTS_CONF]:
         if not os.path.exists(f):
             with open(f, "w") as fh:
                 fh.write("# AegisGate DNS - placeholder\n")

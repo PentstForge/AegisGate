@@ -467,10 +467,26 @@ def generate_dhcp_config():
     return "\n".join(lines) + "\n"
 
 
-def write_dhcp_config():
-    from .dns_config import _write_conf, DHCP_CONF
-    content = generate_dhcp_config()
-    return _write_conf(DHCP_CONF, content)
+def write_dhcp_config(lock=True):
+    from contextlib import nullcontext
+    from .dns_config import _write_conf, DHCP_CONF, dns_config_lock, validate_dnsmasq_config
+    context = dns_config_lock() if lock else nullcontext()
+    with context:
+        previous = None
+        try:
+            with open(DHCP_CONF) as handle:
+                previous = handle.read()
+        except OSError:
+            pass
+        ok, message = _write_conf(DHCP_CONF, generate_dhcp_config())
+        if not ok:
+            return ok, message
+        full_ok, full_error = validate_dnsmasq_config()
+        if full_ok:
+            return True, message
+        if previous is not None:
+            _write_conf(DHCP_CONF, previous)
+        return False, f"Full dnsmasq validation failed: {full_error}"
 
 
 def parse_lease_file():
@@ -534,15 +550,28 @@ def setup_dhcp_nft_rules(lan_iface=None):
     if not lan_iface:
         lan_iface = _get_lan_interface()
     ok, out, err = _run_cmd([NFT, "list", "chain", "inet", "filter", "input"])
-    if f'iifname "{lan_iface}" udp dport 67 accept' in (out if ok else ""):
-        return True, "DHCP nft rules already exist"
+    if not ok:
+        return False, f"Cannot inspect DHCP nft rules: {err}"
+    required = [
+        (f'iifname "{lan_iface}" udp dport 68 accept', ["udp", "dport", "68", "accept"]),
+        (f'iifname "{lan_iface}" udp dport 67 accept', ["udp", "dport", "67", "accept"]),
+        (f'iifname "{lan_iface}" udp dport 53 accept', ["udp", "dport", "53", "accept"]),
+        (f'iifname "{lan_iface}" tcp dport 53 accept', ["tcp", "dport", "53", "accept"]),
+    ]
     gateway_ip = _get_gateway_ip(lan_iface)
-    _run_cmd([NFT, "insert", "rule", "inet", "filter", "input", "iifname", lan_iface, "udp", "dport", "68", "accept"])
-    _run_cmd([NFT, "insert", "rule", "inet", "filter", "input", "iifname", lan_iface, "udp", "dport", "67", "accept"])
-    _run_cmd([NFT, "insert", "rule", "inet", "filter", "input", "iifname", lan_iface, "udp", "dport", "53", "accept"])
-    _run_cmd([NFT, "insert", "rule", "inet", "filter", "input", "iifname", lan_iface, "tcp", "dport", "53", "accept"])
+    for signature, rule in required:
+        if signature not in out:
+            added, _, add_error = _run_cmd([NFT, "insert", "rule", "inet", "filter", "input", "iifname", lan_iface] + rule)
+            if not added:
+                remove_dhcp_nft_rules(lan_iface)
+                return False, f"Failed to add DHCP nft rule: {add_error}"
     if gateway_ip:
-        _run_cmd([NFT, "add", "rule", "inet", "filter", "input", "iifname", lan_iface, "udp", "sport", "67", "ip", "saddr", "!=", gateway_ip, "drop"])
+        signature = f'iifname "{lan_iface}" udp sport 67 ip saddr != {gateway_ip} drop'
+        if signature not in out:
+            added, _, add_error = _run_cmd([NFT, "add", "rule", "inet", "filter", "input", "iifname", lan_iface, "udp", "sport", "67", "ip", "saddr", "!=", gateway_ip, "drop"])
+            if not added:
+                remove_dhcp_nft_rules(lan_iface)
+                return False, f"Failed to add DHCP anti-rogue rule: {add_error}"
     try:
         with open("/proc/sys/net/ipv4/ip_forward", "w") as f:
             f.write("1\n")
@@ -566,8 +595,8 @@ def remove_dhcp_nft_rules(lan_iface=None):
     if not lan_iface:
         lan_iface = _get_lan_interface()
     ok, out, err = _run_cmd([NFT, "-a", "list", "chain", "inet", "filter", "input"])
-    if not ok or "udp dport 67" not in out:
-        return True, "No DHCP rules to remove"
+    if not ok:
+        return False, f"Cannot inspect DHCP nft rules: {err}"
     handles = []
     for line in out.splitlines():
         if ("udp dport 67 accept" in line or "udp dport 68 accept" in line
@@ -581,5 +610,7 @@ def remove_dhcp_nft_rules(lan_iface=None):
     if not handles:
         return True, "No DHCP/DNS rule handles found"
     for h in handles:
-        _run_cmd([NFT, "delete", "rule", "inet", "filter", "input", "handle", h])
+        deleted, _, delete_error = _run_cmd([NFT, "delete", "rule", "inet", "filter", "input", "handle", h])
+        if not deleted:
+            return False, f"Failed to remove DHCP nft rule {h}: {delete_error}"
     return True, f"Removed {len(handles)} DHCP/DNS nft rules"

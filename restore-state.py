@@ -6,11 +6,14 @@ import sys
 import subprocess
 import time
 
-DATA_DIR = "/opt/nft-dashboard/data"
+APP_DIR = os.environ.get("AEGIS_APP_DIR", "/opt/nft-dashboard")
+DATA_DIR = os.path.join(APP_DIR, "data")
 NFT = "/usr/sbin/nft"
-TC = "/sbin/tc"
+TC = "/usr/sbin/tc"
+SYSTEMCTL = "/usr/bin/systemctl"
+IP = "/usr/sbin/ip"
+WG = "/usr/bin/wg"
 WG_QUICK = "/usr/bin/wg-quick"
-IP = "/sbin/ip"
 
 log_messages = []
 
@@ -42,7 +45,10 @@ def wait_for_interface(iface, timeout=60):
         if ok and out:
             try:
                 data = json.loads(out)
-                if data and data[0].get("operstate") == "UP":
+                if data and any(
+                    address.get("family") == "inet"
+                    for address in data[0].get("addr_info", [])
+                ):
                     return True
             except Exception:
                 pass
@@ -52,11 +58,11 @@ def wait_for_interface(iface, timeout=60):
 
 def restore_nftables():
     log("Applying fail-open nftables rules...")
-    safe_restore = "/opt/nft-dashboard/scripts/safe-nft-restore.sh"
+    safe_restore = os.path.join(APP_DIR, "scripts", "safe-nft-restore.sh")
     if os.path.exists(safe_restore):
-        ok, _, err = run([safe_restore])
+        ok, _, err = run([safe_restore, "/etc/nftables.conf"])
     else:
-        ok, _, err = run([NFT, "-f", "/etc/nftables.conf"])
+        ok, err = False, "safe-nft-restore.sh is missing"
     if ok:
         log("nftables rules applied")
     else:
@@ -213,7 +219,12 @@ def restore_wg():
         log("WireGuard: no server config, skipping")
         return
     if not state["server"].get("running"):
-        log("WireGuard: was stopped, not starting")
+        iface = state["server"].get("interface", "wg0")
+        run(["systemctl", "disable", "--now", f"wg-quick@{iface}.service"])
+        active, _, _ = run([WG, "show", iface])
+        if active:
+            run([WG_QUICK, "down", iface])
+        log("WireGuard: desired state is stopped; interface disabled")
         return
     iface = state["server"].get("interface", "wg0")
     ok, out, _ = run([IP, "-j", "addr", "show", iface])
@@ -225,19 +236,19 @@ def restore_wg():
                 run([sys.executable, "-c",
                      "from modules.wg_manager import _sync_all_peers, _apply_all_firewall_rules; "
                      "_sync_all_peers(); _apply_all_firewall_rules()"],
-                    cwd="/opt/nft-dashboard")
+                    cwd=APP_DIR)
                 return
         except Exception:
             pass
     log(f"WireGuard: was running, starting {iface}...")
     wait_for_interface(state["server"].get("listen_if", "eth0"), timeout=30)
-    ok, _, err = run([WG_QUICK, "up", iface])
+    ok, _, err = run([SYSTEMCTL, "enable", "--now", f"wg-quick@{iface}.service"])
     if ok:
         log(f"WireGuard {iface} started")
         run([sys.executable, "-c",
              "from modules.wg_manager import _sync_all_peers, _apply_all_firewall_rules, _open_wg_port, _add_wg_to_flowtable; "
              f"_sync_all_peers(); _apply_all_firewall_rules(); _open_wg_port({state['server'].get('listen_port', 51820)}); _add_wg_to_flowtable('{iface}')"],
-            cwd="/opt/nft-dashboard")
+            cwd=APP_DIR)
     else:
         log(f"WireGuard FAILED: {err[:200]}")
 
@@ -263,7 +274,7 @@ def restore_qos():
     log(f"QoS: was enabled, applying profile '{data.get('active_profile', 'gaming')}'...")
     run([sys.executable, "-c",
          "from modules.qos import apply_profile, _load; d=_load(); apply_profile(d.get('active_profile','gaming'))"],
-        cwd="/opt/nft-dashboard")
+        cwd=APP_DIR)
 
 
 def restore_rules_state():
@@ -274,7 +285,7 @@ def restore_rules_state():
     log("Rules state: restoring toggle states...")
     run([sys.executable, "-c",
          "from modules.rules_ui import restore_all_rules; restore_all_rules()"],
-        cwd="/opt/nft-dashboard")
+         cwd=APP_DIR)
 
 
 def restore_policy():
@@ -286,7 +297,7 @@ def restore_policy():
     log(f"Policy: restoring '{mode}'...")
     run([sys.executable, "-c",
          f"from modules.policy import set_policy; set_policy('{mode}', 'system-boot')"],
-        cwd="/opt/nft-dashboard")
+         cwd=APP_DIR)
 
 
 def restore_vlans():
@@ -337,13 +348,23 @@ def restore_auto_ban_config():
 
 def restore_crowdsec():
     log("Checking CrowdSec bouncer...")
+    if not os.path.exists("/etc/crowdsec/bouncers/crowdsec-firewall-bouncer.yaml"):
+        log("CrowdSec bouncer is not installed, skipping")
+        return True
     ok, _, _ = run(["systemctl", "is-active", "--quiet", "crowdsec-firewall-bouncer"])
     if not ok:
-        run(["systemctl", "start", "crowdsec-firewall-bouncer"])
+        started, _, err = run(["systemctl", "start", "crowdsec-firewall-bouncer"])
+        if not started:
+            log(f"CrowdSec bouncer failed to start: {err[:200]}")
+            return False
         log("CrowdSec bouncer started")
     else:
-        run(["systemctl", "restart", "crowdsec-firewall-bouncer"])
+        restarted, _, err = run(["systemctl", "restart", "crowdsec-firewall-bouncer"])
+        if not restarted:
+            log(f"CrowdSec bouncer failed to restart: {err[:200]}")
+            return False
         log("CrowdSec bouncer restarted to repopulate nft sets")
+    return True
 
 
 def restore_suricata():
@@ -380,41 +401,69 @@ def restore_dns_dhcp():
     dns_settings = load_json(os.path.join(DATA_DIR, "dns_settings.json"))
     if not dns_settings:
         dns_settings = {}
+    try:
+        import sqlite3
+        with sqlite3.connect(os.path.join(DATA_DIR, "dns.db"), timeout=5) as connection:
+            rows = connection.execute(
+                "SELECT key, value FROM dns_settings WHERE key IN ('dns_enabled', 'dhcp_enabled')"
+            ).fetchall()
+        for key, value in rows:
+            try:
+                dns_settings[key] = json.loads(value)
+            except (ValueError, TypeError):
+                dns_settings[key] = str(value).lower() in ("1", "true", "yes", "on")
+    except (OSError, sqlite3.Error):
+        pass
     dns_enabled = dns_settings.get("dns_enabled", True)
     dhcp_enabled = dns_settings.get("dhcp_enabled", False)
 
     wan_if, lan_if, wan_ip, lan_ip, lan_net = _get_ifaces_from_config()
 
     if dns_enabled:
-        ok, _, _ = run(["systemctl", "is-active", "--quiet", "dnsmasq"])
+        try:
+            from modules.dns import init_dns
+            ok, message = init_dns()
+            out, err = message, ""
+        except Exception as exc:
+            ok, out, err = False, "", str(exc)
+        if not ok:
+            log(f"dnsmasq config generation failed: {(err or out)[:200]}")
+            return False
+        ok, _, err = run(["systemctl", "enable", "--now", "dnsmasq"])
         if ok:
-            log("dnsmasq already running")
+            log("dnsmasq config generated and service started")
         else:
-            ok, out, err = run([sys.executable, "-c",
-                "from modules.dns import apply_config; apply_config()"],
-                cwd="/opt/nft-dashboard")
-            if ok:
-                log("dnsmasq config generated and started")
-            else:
-                log(f"dnsmasq start failed: {err[:200]}")
+            log(f"dnsmasq start failed: {err[:200]}")
+            return False
 
-        gateway_ip = lan_ip or dns_settings.get("dns_listen_addr", "172.24.1.1")
-        lan_ifaces = [lan_if] if lan_if else ["eth1"]
-        ok, out, err = run([sys.executable, "-c",
-            f"from modules.dns_nft import setup_dns_redirect; "
-            f"setup_dns_redirect('{wan_if}', {lan_ifaces!r}, gateway_ip='{gateway_ip}')"],
-            cwd="/opt/nft-dashboard")
+        try:
+            from modules.dns_nft import remove_dns_redirect, setup_dns_redirect
+            if dns_settings.get("redirect_external_dns", False):
+                gateway_ip = lan_ip or dns_settings.get("dns_listen_addr", "172.24.1.1")
+                lan_ifaces = [lan_if] if lan_if else ["eth1"]
+                ok, message = setup_dns_redirect(wan_if, lan_ifaces, gateway_ip=gateway_ip)
+            else:
+                ok, message = remove_dns_redirect()
+            out, err = message, ""
+        except Exception as exc:
+            ok, out, err = False, "", str(exc)
         if ok:
-            log("DNS nft redirect applied")
+            log("DNS nft redirect state restored")
         else:
-            log(f"DNS nft redirect failed: {err[:200]}")
+            log(f"DNS nft redirect restore failed: {(err or out)[:200]}")
+            return False
     else:
-        log("DNS disabled, skipping dnsmasq")
+        ok, _, err = run(["systemctl", "disable", "--now", "dnsmasq"])
+        if not ok:
+            log(f"dnsmasq stop failed: {err[:200]}")
+            return False
+        log("DNS disabled, dnsmasq stopped")
 
     if dhcp_enabled:
         log("DHCP enabled — dnsmasq handles both DNS and DHCP")
     else:
         log("DHCP disabled")
+    return True
 
 
 def restore_ip_blocklists():
@@ -438,27 +487,38 @@ def restore_ip_blocklists():
         log(f"IP Blocklists restore failed: {e}")
 
 
+def restore_allowlist():
+    log("Restoring Allowlist...")
+    try:
+        from modules.allowlist import ensure_nft_sets
+        ensure_nft_sets()
+        log("Allowlist restored and synced to nft sets")
+    except Exception as e:
+        log(f"Allowlist restore failed: {e}")
+
+
 def main():
     log("=== AegisGate State Restore ===")
 
     log("Step 1: Waiting for network interfaces...")
-    wan_if = "eth0"
-    ifaces = load_json(os.path.join(DATA_DIR, "ifaces.json"))
-    if ifaces:
-        for name, icfg in ifaces.get("interfaces", {}).items():
-            if icfg.get("role") == "wan":
-                wan_if = name
-                break
-    wait_for_interface(wan_if, timeout=90)
+    wan_if, lan_if, _, _, _ = _get_ifaces_from_config()
+    for interface in (wan_if, lan_if):
+        if not wait_for_interface(interface, timeout=30):
+            log(f"Configured interface has no IPv4 address: {interface}")
+            return 1
     time.sleep(2)
 
     log("Step 2: Restoring nftables rules...")
-    restore_nftables()
+    if not restore_nftables():
+        return 1
 
     log("Step 3: Restoring WireGuard ACL rules...")
     ok, _, _ = run([sys.executable, "-c",
-        "from modules.wg_manager import _apply_all_firewall_rules; _apply_all_firewall_rules()"],
-        cwd="/opt/nft-dashboard")
+        "from modules.wg_manager import _apply_all_firewall_rules; raise SystemExit(0 if _apply_all_firewall_rules() else 1)"],
+        cwd=APP_DIR)
+    if not ok:
+        log("WireGuard ACL restore failed")
+        return 1
 
     log("Step 4: Restoring VLANs...")
     restore_vlans()
@@ -487,13 +547,18 @@ def main():
     restore_vpn_dnat()
 
     log("Step 12: Restoring DNS/DHCP...")
-    restore_dns_dhcp()
+    if not restore_dns_dhcp():
+        return 1
 
     log("Step 13: Restoring IP Blocklists...")
     restore_ip_blocklists()
 
+    log("Step 14: Restoring Allowlist...")
+    restore_allowlist()
+
     log("=== AegisGate State Restore Complete ===")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

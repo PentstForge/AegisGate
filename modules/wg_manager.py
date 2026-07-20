@@ -15,6 +15,7 @@ WG_STATE_FILE = os.path.join(WG_CONFIG_DIR, "state.json")
 WG_STATS_FILE = os.path.join(WG_CONFIG_DIR, "stats_history.json")
 WG = "/usr/bin/wg"
 WG_QUICK = "/usr/bin/wg-quick"
+SYSTEMCTL = "/usr/bin/systemctl"
 
 DEFAULT_SERVER_CONFIG = {
     "interface": "wg0",
@@ -398,8 +399,10 @@ def update_server(address=None, listen_port=None, dns=None, mtu=None):
     state["server"] = config
     _save_state(state)
     if get_server_status()["running"]:
-        subprocess.run([WG_QUICK, "down", config["interface"]], capture_output=True, timeout=10)
-        subprocess.run([WG_QUICK, "up", config["interface"]], capture_output=True, timeout=10)
+        unit = f"wg-quick@{config['interface']}.service"
+        result = subprocess.run([SYSTEMCTL, "restart", unit], capture_output=True, text=True, timeout=30)
+        if result.returncode != 0:
+            return False, f"Config saved but WireGuard restart failed: {result.stderr.strip()}"
         _open_wg_port(config.get("listen_port", 51820))
     return True, "Server config updated"
 
@@ -455,7 +458,10 @@ def start_server():
         return False, "Server not initialized"
     iface = state["server"]["interface"]
     port = state["server"].get("listen_port", 51820)
-    r = subprocess.run([WG_QUICK, "up", iface], capture_output=True, text=True, timeout=15)
+    unit = f"wg-quick@{iface}.service"
+    running = subprocess.run([WG, "show", iface], capture_output=True, text=True, timeout=5).returncode == 0
+    command = [SYSTEMCTL, "enable", unit] if running else [SYSTEMCTL, "enable", "--now", unit]
+    r = subprocess.run(command, capture_output=True, text=True, timeout=30)
     if r.returncode != 0:
         return False, f"Failed to start: {r.stderr.strip()}"
     state["server"]["running"] = True
@@ -465,6 +471,7 @@ def start_server():
     _sync_all_peers()
     _apply_all_firewall_rules()
     _add_wg_to_flowtable(iface)
+    subprocess.run([SYSTEMCTL, "try-restart", "qos-setup.service"], capture_output=True, timeout=30)
     return True, "WireGuard server started"
 
 
@@ -474,9 +481,14 @@ def stop_server():
         return False, "Server not initialized"
     iface = state["server"]["interface"]
     port = state["server"].get("listen_port", 51820)
-    r = subprocess.run([WG_QUICK, "down", iface], capture_output=True, text=True, timeout=15)
+    unit = f"wg-quick@{iface}.service"
+    r = subprocess.run([SYSTEMCTL, "disable", "--now", unit], capture_output=True, text=True, timeout=30)
     if r.returncode != 0:
         return False, f"Failed to stop: {r.stderr.strip()}"
+    if subprocess.run([WG, "show", iface], capture_output=True, timeout=5).returncode == 0:
+        fallback = subprocess.run([WG_QUICK, "down", iface], capture_output=True, text=True, timeout=15)
+        if fallback.returncode != 0:
+            return False, f"Failed to stop: {fallback.stderr.strip()}"
     state["server"]["running"] = False
     _save_state(state)
     _close_wg_port(port)
@@ -485,7 +497,9 @@ def stop_server():
 
 
 def restart_server():
-    stop_server()
+    ok, message = stop_server()
+    if not ok:
+        return False, message
     time.sleep(1)
     return start_server()
 
@@ -545,28 +559,31 @@ def _apply_all_firewall_rules():
                               capture_output=True, timeout=5)
             except Exception:
                 pass
-    try:
-        subprocess.run([NFT, "add", "chain", "inet", "filter", "wg_acl"],
-                       capture_output=True, timeout=5)
-    except Exception:
-        pass
-    try:
-        subprocess.run([NFT, "flush", "chain", "inet", "filter", "wg_acl"],
-                       capture_output=True, timeout=5)
-    except Exception:
-        pass
+    subprocess.run([NFT, "add", "chain", "inet", "filter", "wg_acl"],
+                   capture_output=True, timeout=5)
+    flushed = subprocess.run([NFT, "flush", "chain", "inet", "filter", "wg_acl"],
+                             capture_output=True, timeout=5)
+    if flushed.returncode != 0:
+        return False
     for peer_id in state.get("peers", {}):
         _apply_firewall_rules(peer_id)
-    _ensure_wg_acl_jump()
+    default_drop = subprocess.run(
+        [NFT, "add", "rule", "inet", "filter", "wg_acl", "counter", "drop"],
+        capture_output=True, timeout=5,
+    )
+    return default_drop.returncode == 0 and _ensure_wg_acl_jump()
 
 
 def _ensure_wg_acl_jump():
     vpn_ifaces = _get_vpn_ifaces()
     if not vpn_ifaces:
-        return
+        return True
     try:
         result = subprocess.run([NFT, "-a", "list", "chain", "inet", "filter", "forward"],
-                               capture_output=True, text=True, timeout=5)
+                                capture_output=True, text=True, timeout=5)
+        if result.returncode != 0:
+            return False
+        success = True
         for vpn_if in vpn_ifaces:
             jump_rule = f'iifname "{vpn_if}" jump wg_acl'
             if jump_rule in result.stdout:
@@ -581,15 +598,17 @@ def _ensure_wg_acl_jump():
                             insert_before = h
                             break
             if insert_before:
-                subprocess.run([NFT, "insert", "rule", "inet", "filter", "forward",
-                                "position", insert_before, "iifname", vpn_if, "jump", "wg_acl"],
-                               capture_output=True, timeout=5)
+                added = subprocess.run([NFT, "insert", "rule", "inet", "filter", "forward",
+                                        "position", insert_before, "iifname", vpn_if, "jump", "wg_acl"],
+                                       capture_output=True, timeout=5)
             else:
-                subprocess.run([NFT, "add", "rule", "inet", "filter", "forward",
-                                "iifname", vpn_if, "jump", "wg_acl"],
-                               capture_output=True, timeout=5)
+                added = subprocess.run([NFT, "insert", "rule", "inet", "filter", "forward",
+                                        "iifname", vpn_if, "jump", "wg_acl"],
+                                       capture_output=True, timeout=5)
+            success = success and added.returncode == 0
+        return success
     except Exception:
-        pass
+        return False
 
 
 def _ensure_wg_acl_chain():
@@ -607,9 +626,9 @@ def _ensure_wg_acl_chain():
         peer_ip = peer.get("address")
         if peer_ip:
             sub_chain = f"wg_peer_{peer_ip.replace('.', '_')}"
-            subprocess.run([NFT, "add", "rule", "inet", "filter", "wg_acl",
-                            "ip", "saddr", peer_ip, "jump", sub_chain],
-                          capture_output=True, timeout=5)
+            subprocess.run([NFT, "insert", "rule", "inet", "filter", "wg_acl",
+                             "ip", "saddr", peer_ip, "jump", sub_chain],
+                           capture_output=True, timeout=5)
 
 
 def _apply_firewall_rules(peer_id):
